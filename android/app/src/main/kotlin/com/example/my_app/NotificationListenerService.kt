@@ -16,8 +16,23 @@ import java.util.Locale
 class NotificationListenerService : NotificationListenerService() {
     companion object {
         private const val TAG = "NotifListener"
-        private const val PREFS_NAME = "whatsapp_notifications"
+        private const val PREFS_NAME = "app_notifications"
         private const val NOTIFICATIONS_KEY = "notifications"
+        
+        // Email app package names
+        private val EMAIL_PACKAGES = listOf(
+            "com.google.android.gm",           // Gmail
+            "com.google.android.gm.lite",      // Gmail Go
+            "com.microsoft.office.outlook",    // Outlook
+            "com.android.email",               // Default Email
+            "com.samsung.android.email.provider", // Samsung Email
+            "com.yahoo.mobile.client.android.mail", // Yahoo Mail
+            "com.airmail.android",             // Airmail
+            "com.easilydo.mail"                // Mail Droid
+        )
+        
+        // WhatsApp packages
+        private val WHATSAPP_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
         
         fun getStoredNotifications(context: Context): List<Map<String, Any>> {
             val notifications = mutableListOf<Map<String, Any>>()

@@ -3,8 +3,11 @@ class Message {
   final String address;
   final String body;
   final DateTime date;
-  final String source; // 'sms' or 'whatsapp'
-  final bool isRead; // read/unread status (SMS only)
+  final String source; // 'sms', 'whatsapp', or 'gmail'
+  final bool isRead;
+  final String? subject; // Gmail subject
+  final String? gmailTo; // Recipient for sent emails
+  final String? gmailLabel; // INBOX, SENT, SPAM, etc.
 
   Message({
     required this.id,
@@ -13,5 +16,8 @@ class Message {
     required this.date,
     required this.source,
     this.isRead = false,
+    this.subject,
+    this.gmailTo,
+    this.gmailLabel,
   });
 }
