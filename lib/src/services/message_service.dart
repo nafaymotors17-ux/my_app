@@ -8,14 +8,14 @@ class MessageService {
   static Future<List<Message>> loadSmsMessages() async {
     try {
       final List<dynamic> smsMessages =
-          await PlatformService.getSmsMessagesWithReadStatus() ?? <dynamic>[];
-      return (smsMessages).map((message) {
+          await PlatformService.getSmsMessagesWithReadStatus();
+      return smsMessages.map((message) {
         final Map<dynamic, dynamic> msg = message as Map<dynamic, dynamic>;
         final int ts = msg['date'] as int? ?? 0;
         final String src = msg['source'] as String? ?? 'sms';
         final String address = msg['address'] as String? ?? 'Unknown';
         final bool smsIsRead = msg['isRead'] as bool? ?? false;
-        final String id = '${src}_${ts}_${address}';
+        final String id = '$src-$ts-$address';
         return Message(
           id: id,
           address: address,

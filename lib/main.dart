@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:my_app/src/pages/message_reader_page.dart';
+import 'package:my_app/src/services/prefs_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await PrefsService.init();
   runApp(const MyApp());
 }
 

@@ -5,6 +5,7 @@ import 'package:my_app/src/models/message.dart';
 import 'package:my_app/src/utils/date_time_utils.dart';
 import 'package:my_app/src/utils/html_utils.dart';
 import 'package:my_app/src/widgets/email_web_view.dart';
+import 'package:my_app/src/widgets/sms_ai_check_card.dart';
 
 /// Side panel for master-detail layout on wide screens.
 /// Mirrors the Gmail-like design of [MessageDetailPage].
@@ -209,6 +210,12 @@ class MessageDetailPanel extends StatelessWidget {
                   const SizedBox(height: 16),
                   const Divider(height: 1),
                   const SizedBox(height: 16),
+                  if (!isGmail) ...[
+                    SmsAiCheckCard(messageText: msg.body),
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 16),
+                  ],
                   // Body
                   _buildBody(context, msg),
                 ],

@@ -6,6 +6,7 @@ import 'package:my_app/src/services/gmail_service.dart';
 import 'package:my_app/src/utils/date_time_utils.dart';
 import 'package:my_app/src/utils/html_utils.dart';
 import 'package:my_app/src/widgets/email_web_view.dart';
+import 'package:my_app/src/widgets/sms_ai_check_card.dart';
 
 /// Full-screen message detail page modeled after the Gmail app.
 ///
@@ -215,6 +216,11 @@ class _MessageDetailPageState extends State<MessageDetailPage> {
                 children: [
                   _buildSubjectHeader(hp),
                   _buildSenderSection(hp),
+                  if (!isGmail)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(hp, 12, hp, 4),
+                      child: SmsAiCheckCard(messageText: msg.body),
+                    ),
                   Padding(
                     padding: EdgeInsets.only(left: hp + 52, right: hp),
                     child: const Divider(height: 1),

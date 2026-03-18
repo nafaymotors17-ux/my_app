@@ -12,6 +12,8 @@ import 'package:my_app/src/widgets/gmail_status_button.dart';
 import 'package:my_app/src/widgets/message_card.dart';
 import 'package:my_app/src/pages/message_detail_page.dart';
 import 'package:my_app/src/widgets/message_detail_panel.dart';
+import 'package:my_app/src/services/prefs_service.dart';
+import 'package:my_app/src/services/sms_ai_service.dart';
 class MessageReaderPage extends StatefulWidget {
   const MessageReaderPage({super.key, required this.title});
 
@@ -25,6 +27,41 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
   late MessageReaderController _controller;
   Message? _selectedMessage; // For master-detail layout on wide screens
   final ScrollController _scrollController = ScrollController();
+
+  Future<void> _openAiSettings() async {
+    final current = (await PrefsService.getAiBaseUrl()) ??
+        SmsAiService.defaultBaseUrl();
+    if (!mounted) return;
+    final controller = TextEditingController(text: current);
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('AI API Base URL'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'http://10.0.2.2:8000',
+            helperText:
+                'Android emulator: http://10.0.2.2:8000\nReal phone: http://<PC-LAN-IP>:8000',
+          ),
+          autocorrect: false,
+          keyboardType: TextInputType.url,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (saved == null) return;
+    await PrefsService.setAiBaseUrl(saved);
+  }
 
   @override
   void initState() {
@@ -415,6 +452,9 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
               tooltip: 'Status & options',
               onSelected: (value) {
                 switch (value) {
+                  case 'ai_settings':
+                    _openAiSettings();
+                    break;
                   case 'gmail_signin':
                     _handleGmailSignIn();
                     break;
@@ -473,6 +513,16 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
                   ),
                 const PopupMenuDivider(),
                 const PopupMenuItem(
+                  value: 'ai_settings',
+                  child: Row(
+                    children: [
+                      Icon(Icons.settings_outlined),
+                      SizedBox(width: 12),
+                      Text('AI API settings'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
                   value: 'refresh',
                   child: Row(
                     children: [
@@ -489,6 +539,11 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
               isSignedIn: _controller.gmailSignedIn,
               userEmail: _controller.gmailUserEmail,
               onTap: _handleGmailTap,
+            ),
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'AI API settings',
+              onPressed: _openAiSettings,
             ),
             IconButton(
               icon: const Icon(Icons.refresh),
