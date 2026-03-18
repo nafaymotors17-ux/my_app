@@ -149,6 +149,35 @@ class GmailService {
     }
   }
 
+  /// Fetch all emails for a label at once (multiple pages until done or cap).
+  /// Use for "load all then paginate on frontend". [maxTotalResults] caps total (default 500).
+  static Future<List<Email>> fetchAllEmailsByLabel({
+    required String labelId,
+    int pageSize = defaultPageSize,
+    int maxTotalResults = 500,
+    bool unreadOnly = true,
+  }) async {
+    final List<Email> allEmails = [];
+    String? pageToken;
+    final useUnread = unreadOnly && _unreadOnlyForLabel(labelId);
+
+    while (allEmails.length < maxTotalResults) {
+      final result = await fetchEmailsByLabelPage(
+        labelId: labelId,
+        pageToken: pageToken,
+        maxResults: pageSize,
+        unreadOnly: useUnread,
+      );
+      if (result.emails.isEmpty) break;
+      allEmails.addAll(result.emails);
+      if (result.nextPageToken == null) break;
+      if (allEmails.length >= maxTotalResults) break;
+      pageToken = result.nextPageToken;
+    }
+
+    return allEmails;
+  }
+
   /// Legacy: fetch emails (first page only, unread for inbox/spam)
   static Future<List<Email>> fetchEmailsByLabel({
     required String labelId,

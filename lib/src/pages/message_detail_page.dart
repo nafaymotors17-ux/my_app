@@ -17,7 +17,7 @@ class MessageDetailPage extends StatefulWidget {
   final Message message;
   final bool initialIsRead;
   final VoidCallback onToggleRead;
-  final VoidCallback onClear;
+  final VoidCallback? onClear;
   final Future<void> Function()? onMarkAsSpam;
   final Future<void> Function()? onTrash;
 
@@ -26,7 +26,7 @@ class MessageDetailPage extends StatefulWidget {
     required this.message,
     required this.initialIsRead,
     required this.onToggleRead,
-    required this.onClear,
+    this.onClear,
     this.onMarkAsSpam,
     this.onTrash,
   });
@@ -105,13 +105,11 @@ class _MessageDetailPageState extends State<MessageDetailPage> {
   }
 
   Color get _sourceColor => switch (msg.source) {
-        'whatsapp' => Colors.green,
         'gmail' => Colors.red.shade700,
         _ => Colors.blue,
       };
 
   String get _sourceLabel => switch (msg.source) {
-        'whatsapp' => 'WhatsApp',
         'gmail' => msg.gmailLabel ?? 'INBOX',
         'sms' => 'SMS',
         _ => msg.source.toUpperCase(),
@@ -149,7 +147,7 @@ class _MessageDetailPageState extends State<MessageDetailPage> {
   }
 
   void _clear() {
-    widget.onClear();
+    widget.onClear?.call();
     if (mounted) Navigator.pop(context);
   }
 
@@ -262,24 +260,26 @@ class _MessageDetailPageState extends State<MessageDetailPage> {
             tooltip: 'Move to trash',
             onPressed: _trash,
           ),
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert, size: 22),
-          onSelected: (v) {
-            if (v == 'spam') _spam();
-            if (v == 'clear') _clear();
-          },
-          itemBuilder: (_) => [
-            if (isGmail && widget.onMarkAsSpam != null)
-              const PopupMenuItem(
-                value: 'spam',
-                child: Text('Report spam'),
-              ),
-            const PopupMenuItem(
-              value: 'clear',
-              child: Text('Remove'),
-            ),
-          ],
-        ),
+        if ((isGmail && widget.onMarkAsSpam != null) || widget.onClear != null)
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 22),
+            onSelected: (v) {
+              if (v == 'spam') _spam();
+              if (v == 'clear') _clear();
+            },
+            itemBuilder: (_) => [
+              if (isGmail && widget.onMarkAsSpam != null)
+                const PopupMenuItem(
+                  value: 'spam',
+                  child: Text('Report spam'),
+                ),
+              if (widget.onClear != null)
+                const PopupMenuItem(
+                  value: 'clear',
+                  child: Text('Remove'),
+                ),
+            ],
+          ),
       ],
     );
   }
@@ -544,7 +544,7 @@ class _MessageDetailPageState extends State<MessageDetailPage> {
       return EmailWebView(htmlContent: body);
     }
 
-    // ── Plain text (SMS / WhatsApp) → lightweight widget renderer ──
+    // ── Plain text (SMS) → lightweight widget renderer ──
     final html = HtmlUtils.plainTextToHtml(body);
     return HtmlWidget(
       html,

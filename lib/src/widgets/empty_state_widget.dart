@@ -3,42 +3,67 @@ import 'package:flutter/material.dart';
 class EmptyStateWidget extends StatelessWidget {
   final String selectedFilter;
   final VoidCallback onLoadMessages;
-  final String? gmailLabel; // INBOX or SPAM - for more specific empty message
 
   const EmptyStateWidget({
     super.key,
     required this.selectedFilter,
     required this.onLoadMessages,
-    this.gmailLabel,
   });
 
   @override
   Widget build(BuildContext context) {
-    final icon = selectedFilter == 'gmail'
-        ? Icons.mail
-        : selectedFilter == 'whatsapp'
-            ? Icons.chat
-            : Icons.sms;
-    String label = selectedFilter == 'all'
-        ? 'No messages found'
-        : selectedFilter == 'gmail'
-            ? (gmailLabel == 'SPAM' ? 'No spam emails' : 'No unread emails in inbox')
-            : selectedFilter == 'whatsapp'
-                ? 'No WhatsApp messages'
-                : 'No SMS messages';
+    final isGmail = selectedFilter == 'gmail';
+    final icon = isGmail ? Icons.mail_outline_rounded : Icons.sms_outlined;
+    final label = isGmail
+        ? 'No emails here'
+        : 'No unread SMS messages';
+    final subtitle = isGmail
+        ? 'Pull down to refresh or switch folder'
+        : 'Grant SMS permission to load messages';
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 80, color: Colors.grey),
-          const SizedBox(height: 16),
-          Text(label, style: const TextStyle(fontSize: 18)),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: onLoadMessages,
-            child: Text(selectedFilter == 'gmail' ? 'Refresh Emails' : 'Load Messages'),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 56, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: onLoadMessages,
+              icon: Icon(isGmail ? Icons.refresh_rounded : Icons.inbox_rounded, size: 20),
+              label: Text(isGmail ? 'Refresh emails' : 'Load messages'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

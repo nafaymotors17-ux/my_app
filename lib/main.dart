@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         ),
       ),
-      home: const MessageReaderPage(title: 'Messages & Notifications'),
+      home: const MessageReaderPage(title: 'Phishing Detector'),
     );
   }
 }

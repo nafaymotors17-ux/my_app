@@ -25,49 +25,48 @@ class MessageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isGmail = msg.source == 'gmail';
-    final sourceColor = msg.source == 'whatsapp'
-        ? Colors.green
-        : msg.source == 'gmail'
-            ? Colors.red.shade700
-            : Colors.blue;
+    final sourceColor = msg.source == 'gmail'
+        ? Colors.red.shade700
+        : Colors.blue;
     final isSpam = msg.gmailLabel == 'SPAM';
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-      elevation: isSelected ? 2 : 1,
+      margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      elevation: isSelected ? 3 : 0,
+      shadowColor: Colors.black26,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         side: isSpam
-            ? BorderSide(color: Colors.orange.shade300, width: 1)
-            : BorderSide.none,
+            ? BorderSide(color: Colors.orange.shade300, width: 1.5)
+            : BorderSide(color: Colors.grey.shade200),
       ),
       color: isSelected
-          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
+          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4)
           : isRead
-              ? Colors.grey[50]
-              : Colors.white,
+              ? Colors.grey.shade50
+              : Theme.of(context).colorScheme.surface,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Number badge (Gmail) or Avatar
               if (index != null)
                 Container(
-                  width: 32,
-                  height: 32,
+                  width: 36,
+                  height: 36,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: sourceColor.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
+                    color: sourceColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     '$index',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                       color: sourceColor,
                       fontSize: 14,
                     ),
@@ -80,7 +79,7 @@ class MessageCard extends StatelessWidget {
                     radius: 24,
                     backgroundColor: sourceColor.withValues(alpha: 0.2),
                     child: Icon(
-                      isGmail ? Icons.mail : (msg.source == 'whatsapp' ? Icons.chat : Icons.sms),
+                      isGmail ? Icons.mail : Icons.sms,
                       color: sourceColor,
                       size: 24,
                     ),
@@ -113,9 +112,10 @@ class MessageCard extends StatelessWidget {
                           child: Text(
                             isGmail ? (msg.subject ?? '(No subject)') : msg.address,
                             style: TextStyle(
-                              fontWeight: isRead ? FontWeight.w500 : FontWeight.bold,
+                              fontWeight: isRead ? FontWeight.w500 : FontWeight.w600,
                               fontSize: 15,
                               color: isRead ? Colors.grey[700] : Colors.black87,
+                              letterSpacing: 0.2,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -124,8 +124,9 @@ class MessageCard extends StatelessWidget {
                         Text(
                           DateTimeUtils.formatDate(msg.date),
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 12,
                             color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
@@ -169,7 +170,7 @@ class MessageCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Text(
                       msg.body.trim().isEmpty ? '(No content)' : msg.body,
                       maxLines: 2,
@@ -177,7 +178,7 @@ class MessageCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         color: isRead ? Colors.grey[600] : Colors.black87,
-                        height: 1.3,
+                        height: 1.35,
                       ),
                     ),
                   ],

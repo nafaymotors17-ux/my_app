@@ -6,7 +6,7 @@ class GmailAuthService {
   /// Web Client ID from Google Cloud Console (OAuth 2.0 Client ID, type: Web application).
   /// ⚠️ MUST be the Web client, NOT the Android client. Required for Gmail API token exchange.
   /// Create at: Credentials → Create Credentials → OAuth 2.0 Client ID → Web application
-  static const String? serverClientId = '860732880625-n4hhcerh7f4v6o361jue7moms8ejo5j7.apps.googleusercontent.com';
+  static const String? serverClientId = '84331485062-10p0smuhubp71s78i96dbdqvuo8qlh0p.apps.googleusercontent.com';
 
   static GoogleSignIn? _googleSignInInstance;
   static GoogleSignIn get _googleSignIn {

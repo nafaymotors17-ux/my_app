@@ -306,7 +306,6 @@ class MessageDetailPanel extends StatelessWidget {
   }
 
   static Color _sourceColor(Message msg) => switch (msg.source) {
-        'whatsapp' => Colors.green,
         'gmail' => Colors.red.shade700,
         _ => Colors.blue,
       };

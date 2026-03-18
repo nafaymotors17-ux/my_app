@@ -6,16 +6,12 @@ import 'package:my_app/src/controllers/message_reader_controller.dart';
 import 'package:my_app/src/services/gmail_service.dart';
 import 'package:my_app/src/models/message.dart';
 import 'package:my_app/src/utils/responsive.dart';
-import 'package:my_app/src/widgets/background_service_button.dart';
 import 'package:my_app/src/widgets/empty_state_widget.dart';
 import 'package:my_app/src/widgets/filter_chips.dart';
 import 'package:my_app/src/widgets/gmail_status_button.dart';
 import 'package:my_app/src/widgets/message_card.dart';
 import 'package:my_app/src/pages/message_detail_page.dart';
 import 'package:my_app/src/widgets/message_detail_panel.dart';
-import 'package:my_app/src/widgets/notification_listener_dialogs.dart';
-import 'package:my_app/src/widgets/notification_status_button.dart';
-
 class MessageReaderPage extends StatefulWidget {
   const MessageReaderPage({super.key, required this.title});
 
@@ -36,26 +32,14 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
     _controller = MessageReaderController();
     _controller.addListener(_onControllerUpdate);
     _controller.init();
-    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _controller.removeListener(_onControllerUpdate);
     _controller.dispose();
     super.dispose();
-  }
-
-  void _onScroll() {
-    if (_controller.selectedFilter != 'gmail') return;
-    final pos = _scrollController.position;
-    if (pos.pixels >= pos.maxScrollExtent - 200 &&
-        !_controller.gmailLoadingMore &&
-        _controller.gmailHasMore) {
-      _controller.loadMoreGmailEmails();
-    }
   }
 
   void _onControllerUpdate() {
@@ -67,84 +51,6 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
           _selectedMessage = null;
         }
       });
-    }
-  }
-
-  Future<void> _handleStartBackgroundService() async {
-    try {
-      await _controller.startBackgroundService();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✓ Background SMS listener started'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error starting service: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleStopBackgroundService() async {
-    try {
-      await _controller.stopBackgroundService();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✓ Background SMS listener stopped'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error stopping service: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleEnableNotificationListener() async {
-    try {
-      await _controller.enableNotificationListener();
-      if (mounted) {
-        NotificationListenerDialogs.showEnableDialog(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleTestNotificationListener() async {
-    try {
-      final testResult = await _controller.testNotificationListener();
-      if (mounted && testResult != null) {
-        NotificationListenerDialogs.showTestDialog(context, testResult);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error testing: $e')),
-        );
-      }
     }
   }
 
@@ -310,32 +216,11 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
     await _controller.setGmailLabel(labelId);
   }
 
-  Future<void> _handleClearAll() async {
-    final confirm = await NotificationListenerDialogs.showClearAllDialog(context);
-    if (confirm == true) {
-      await _controller.clearAll();
-      setState(() => _selectedMessage = null);
-    }
-  }
-
-  Future<void> _handleClearMessage(Message msg) async {
-    final res = await NotificationListenerDialogs.showClearMessageDialog(context);
-    if (res == true) {
-      _controller.clearMessage(msg);
-      if (_selectedMessage?.id == msg.id) {
-        setState(() => _selectedMessage = null);
-      }
-    }
-  }
-
   void _showMessageDetail(Message msg) {
     if (ResponsiveBreakpoints.isWideScreen(context)) {
       setState(() => _selectedMessage = msg);
     } else {
       // Open in a full page (like email apps) — preserves list state on back.
-      final gmailId = msg.source == 'gmail'
-          ? msg.id.replaceFirst('gmail_', '')
-          : null;
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -343,19 +228,6 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
             message: msg,
             initialIsRead: _controller.isMessageRead(msg),
             onToggleRead: () => _controller.toggleRead(msg),
-            onClear: () => _controller.clearMessage(msg),
-            onMarkAsSpam: msg.source == 'gmail' && gmailId != null
-                ? () async {
-                    await GmailService.markAsSpam(gmailId);
-                    _controller.clearMessage(msg);
-                  }
-                : null,
-            onTrash: msg.source == 'gmail' && gmailId != null
-                ? () async {
-                    await GmailService.trashEmail(gmailId);
-                    _controller.clearMessage(msg);
-                  }
-                : null,
           ),
         ),
       );
@@ -367,108 +239,144 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
     final showGmailLoading = isGmailFilter && _controller.gmailLoading;
 
     if (_controller.isLoading && _controller.displayedMessages.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Loading…',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            ),
+          ],
+        ),
+      );
     }
     // Gmail tab loading (switching Inbox/Sent/Spam)
     if (showGmailLoading) {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 16),
-          Text(
-            'Loading ${_controller.selectedGmailLabel == GmailLabels.spam ? 'spam' : 'inbox'}...',
-            style: TextStyle(color: Colors.grey[600], fontSize: 14),
-          ),
-        ],
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Loading emails…',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       );
     }
     if (_controller.displayedMessages.isEmpty) {
       return EmptyStateWidget(
         selectedFilter: _controller.selectedFilter,
         onLoadMessages: isGmailFilter ? () => _controller.loadGmailWhenFilterIsGmail() : _handleLoadMessages,
-        gmailLabel: isGmailFilter ? _controller.selectedGmailLabel : null,
       );
     }
 
-    final count = _controller.displayedMessages.length;
-    final hasMore = _controller.gmailHasMore;
-    final loadingMore = _controller.gmailLoadingMore;
+    final visible = _controller.visibleMessages;
+    final total = _controller.displayedMessages.length;
+    final hasMoreVisible = _controller.gmailHasMoreVisible;
 
     return Column(
       children: [
-        if (isGmailFilter && _controller.gmailSignedIn)
+        if (isGmailFilter && _controller.gmailSignedIn && total > 0)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 6),
+                Icon(Icons.inbox_outlined, size: 18, color: Colors.grey[600]),
+                const SizedBox(width: 8),
                 Text(
-                  'Loaded $count'
-                  + (hasMore ? ' · Load more below' : ' · All loaded'),
+                  hasMoreVisible
+                      ? 'Showing ${visible.length} of $total'
+                      : '$total emails',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     color: Colors.grey[700],
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
         Expanded(
-          child: ListView.builder(
-            controller: _scrollController,
-            padding: EdgeInsets.only(
-              left: ResponsiveBreakpoints.isMediumOrWider(context) ? 12 : 8,
-              right: ResponsiveBreakpoints.isMediumOrWider(context) ? 12 : 8,
-              bottom: 16,
-            ),
-            itemCount: count + (isGmailFilter && count > 0 && (hasMore || loadingMore) ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index >= count) {
-                return _buildGmailLoadMoreFooter();
+          child: RefreshIndicator(
+            onRefresh: () async {
+              if (isGmailFilter) {
+                await _controller.loadGmailWhenFilterIsGmail();
+              } else {
+                await _handleLoadMessages();
               }
-              final Message msg = _controller.displayedMessages[index];
-              final bool isMessageRead = _controller.isMessageRead(msg);
-              final bool isSelected = _selectedMessage?.id == msg.id;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: MessageCard(
-                  msg: msg,
-                  index: isGmailFilter ? index + 1 : null,
-                  isRead: isMessageRead,
-                  isSelected: isSelected,
-                  onTap: () => _showMessageDetail(msg),
-                  onDelete: () => _handleClearMessage(msg),
-                  onToggleRead: () => _controller.toggleRead(msg),
-                ),
-              );
             },
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: EdgeInsets.only(
+                left: ResponsiveBreakpoints.isMediumOrWider(context) ? 16 : 12,
+                right: ResponsiveBreakpoints.isMediumOrWider(context) ? 16 : 12,
+                top: 8,
+                bottom: 24,
+              ),
+              itemCount: visible.length + (hasMoreVisible ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= visible.length) {
+                  return _buildLoadMoreVisibleFooter(total, visible.length);
+                }
+                final Message msg = visible[index];
+                final bool isMessageRead = _controller.isMessageRead(msg);
+                final bool isSelected = _selectedMessage?.id == msg.id;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: MessageCard(
+                    msg: msg,
+                    index: isGmailFilter ? index + 1 : null,
+                    isRead: isMessageRead,
+                    isSelected: isSelected,
+                    onTap: () => _showMessageDetail(msg),
+                    onToggleRead: () => _controller.toggleRead(msg),
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildGmailLoadMoreFooter() {
-    if (_controller.gmailLoadingMore) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 16),
-        child: Center(child: SizedBox(
-          height: 24,
-          width: 24,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        )),
-      );
-    }
+  Widget _buildLoadMoreVisibleFooter(int total, int showing) {
+    final remaining = total - showing;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Center(
         child: TextButton.icon(
-          onPressed: _controller.gmailHasMore ? () => _controller.loadMoreGmailEmails() : null,
-          icon: const Icon(Icons.expand_more, size: 20),
-          label:           const Text('Load more (30 next)'),
+          onPressed: _controller.gmailHasMoreVisible ? _controller.loadMoreVisible : null,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 22),
+          label: Text('Show ${remaining > 25 ? 25 : remaining} more'),
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.primary,
+          ),
         ),
       ),
     );
@@ -481,12 +389,19 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
         title: Text(
           widget.title,
           overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
         ),
         elevation: 0,
+        scrolledUnderElevation: 1,
+        surfaceTintColor: Colors.transparent,
         actions: [
           // On narrow screens, show icons only; on wider, show full buttons
           if (isNarrow) ...[
@@ -495,26 +410,11 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
               tooltip: 'Refresh',
               onPressed: _handleLoadMessages,
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_forever),
-              tooltip: 'Clear all',
-              onPressed: _handleClearAll,
-            ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
               tooltip: 'Status & options',
               onSelected: (value) {
                 switch (value) {
-                  case 'notifications':
-                    _controller.notificationListenerEnabled
-                        ? _handleTestNotificationListener()
-                        : _handleEnableNotificationListener();
-                    break;
-                  case 'background':
-                    _controller.backgroundServiceRunning
-                        ? _handleStopBackgroundService()
-                        : _handleStartBackgroundService();
-                    break;
                   case 'gmail_signin':
                     _handleGmailSignIn();
                     break;
@@ -524,55 +424,9 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
                   case 'refresh':
                     _handleLoadMessages();
                     break;
-                  case 'clear':
-                    _handleClearAll();
-                    break;
                 }
               },
               itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'notifications',
-                  child: Row(
-                    children: [
-                      Icon(
-                        _controller.notificationListenerEnabled
-                            ? Icons.check_circle
-                            : Icons.notifications,
-                        color: _controller.notificationListenerEnabled
-                            ? Colors.green
-                            : Colors.orange,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        _controller.notificationListenerEnabled
-                            ? 'Notifications: Active'
-                            : 'Enable Notifications',
-                      ),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'background',
-                  child: Row(
-                    children: [
-                      Icon(
-                        _controller.backgroundServiceRunning
-                            ? Icons.cloud_done
-                            : Icons.cloud_off,
-                        color: _controller.backgroundServiceRunning
-                            ? Colors.blue
-                            : Colors.grey,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        _controller.backgroundServiceRunning
-                            ? 'Background: Running'
-                            : 'Start Background Service',
-                      ),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
                 if (_controller.gmailSignedIn) ...[
                   PopupMenuItem(
                     enabled: false,
@@ -628,40 +482,13 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
                     ],
                   ),
                 ),
-                const PopupMenuItem(
-                  value: 'clear',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_forever),
-                      SizedBox(width: 12),
-                      Text('Clear all'),
-                    ],
-                  ),
-                ),
               ],
             ),
           ] else ...[
-            NotificationStatusButton(
-              isEnabled: _controller.notificationListenerEnabled,
-              onTap: _controller.notificationListenerEnabled
-                  ? _handleTestNotificationListener
-                  : _handleEnableNotificationListener,
-            ),
-            BackgroundServiceButton(
-              isRunning: _controller.backgroundServiceRunning,
-              onTap: _controller.backgroundServiceRunning
-                  ? _handleStopBackgroundService
-                  : _handleStartBackgroundService,
-            ),
             GmailStatusButton(
               isSignedIn: _controller.gmailSignedIn,
               userEmail: _controller.gmailUserEmail,
               onTap: _handleGmailTap,
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_forever),
-              tooltip: 'Clear all (WhatsApp storage + local state)',
-              onPressed: _handleClearAll,
             ),
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -710,47 +537,6 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
                           : null,
                       onToggleRead: _selectedMessage != null
                           ? () => _controller.toggleRead(_selectedMessage!)
-                          : null,
-                      onClear: _selectedMessage != null
-                          ? () => _handleClearMessage(_selectedMessage!)
-                          : null,
-                      onMarkAsSpam: _selectedMessage != null &&
-                              _selectedMessage!.source == 'gmail'
-                          ? () async {
-                              final msg = _selectedMessage!;
-                              final messenger = ScaffoldMessenger.of(context);
-                              final gmailId = msg.id.replaceFirst('gmail_', '');
-                              await GmailService.markAsSpam(gmailId);
-                              _controller.clearMessage(msg);
-                              if (mounted) {
-                                setState(() => _selectedMessage = null);
-                                messenger.showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Marked as spam'),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                              }
-                            }
-                          : null,
-                      onTrash: _selectedMessage != null &&
-                              _selectedMessage!.source == 'gmail'
-                          ? () async {
-                              final msg = _selectedMessage!;
-                              final messenger = ScaffoldMessenger.of(context);
-                              final gmailId = msg.id.replaceFirst('gmail_', '');
-                              await GmailService.trashEmail(gmailId);
-                              _controller.clearMessage(msg);
-                              if (mounted) {
-                                setState(() => _selectedMessage = null);
-                                messenger.showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Moved to trash'),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                              }
-                            }
                           : null,
                     ),
                   ),

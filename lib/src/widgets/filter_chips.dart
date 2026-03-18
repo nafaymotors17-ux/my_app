@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/services/gmail_service.dart';
 
 class FilterChips extends StatelessWidget {
   final String selectedFilter;
@@ -21,52 +20,24 @@ class FilterChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isGmailSelected = selectedFilter == 'gmail';
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Main filters: All, SMS, WhatsApp, Gmail
+          // Filters: SMS, Gmail only
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildFilterChip(context, 'All', 'all'),
-                const SizedBox(width: 8),
                 _buildFilterChip(context, 'SMS', 'sms'),
-                const SizedBox(width: 8),
-                _buildFilterChip(context, 'WhatsApp', 'whatsapp'),
                 const SizedBox(width: 8),
                 _buildFilterChip(context, 'Gmail', 'gmail'),
               ],
             ),
           ),
-          // Gmail sub-filters: Inbox, Sent, Spam (only when Gmail selected and signed in)
-          if (isGmailSelected && gmailSignedIn) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Gmail folders',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildGmailLabelChip(context, 'Inbox (unread)', GmailLabels.inbox, Icons.inbox),
-                  const SizedBox(width: 8),
-                  _buildGmailLabelChip(context, 'Spam', GmailLabels.spam, Icons.report),
-                ],
-              ),
-            ),
-          ],
+          // Gmail: unread inbox only (no spam)
         ],
       ),
     );
@@ -80,41 +51,19 @@ class FilterChips extends StatelessWidget {
       onSelected: (selected) => onFilterChanged(value),
       backgroundColor: isSelected
           ? Theme.of(context).colorScheme.primary
-          : Colors.grey[200],
+          : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
       labelStyle: TextStyle(
-        color: isSelected ? Colors.white : Colors.black87,
+        color: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurfaceVariant,
         fontWeight: FontWeight.w600,
         fontSize: 13,
       ),
       selectedColor: Theme.of(context).colorScheme.primary,
-      checkmarkColor: Colors.white,
+      checkmarkColor: Theme.of(context).colorScheme.onPrimary,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      side: BorderSide(
+        color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
+      ),
     );
   }
 
-  Widget _buildGmailLabelChip(BuildContext context, String label, String value, IconData icon) {
-    final isSelected = selectedGmailLabel == value;
-    final chipColor = value == GmailLabels.spam ? Colors.orange : null;
-    return FilterChip(
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: isSelected ? Colors.white : (chipColor ?? Colors.grey[700])),
-          const SizedBox(width: 6),
-          Text(label),
-        ],
-      ),
-      selected: isSelected,
-      onSelected: gmailLoading ? null : (_) => onGmailLabelChanged(value),
-      backgroundColor: isSelected
-          ? (chipColor ?? Theme.of(context).colorScheme.primary)
-          : (chipColor?.withValues(alpha: 0.15) ?? Colors.grey[100]),
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.white : (chipColor ?? Colors.black87),
-        fontWeight: FontWeight.w600,
-        fontSize: 12,
-      ),
-      selectedColor: chipColor ?? Theme.of(context).colorScheme.primary,
-      checkmarkColor: Colors.white,
-    );
-  }
 }

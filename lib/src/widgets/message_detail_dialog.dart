@@ -26,11 +26,9 @@ class MessageDetailDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isGmail = msg.source == 'gmail';
-    final sourceColor = msg.source == 'whatsapp'
-        ? Colors.green
-        : msg.source == 'gmail'
-            ? Colors.red.shade700
-            : Colors.blue;
+    final sourceColor = msg.source == 'gmail'
+        ? Colors.red.shade700
+        : Colors.blue;
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

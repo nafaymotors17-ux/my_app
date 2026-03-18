@@ -36,8 +36,9 @@ class MessageListItem extends StatelessWidget {
     return Stack(
       children: [
         CircleAvatar(
-          backgroundColor:
-              message.source == 'whatsapp' ? Colors.green : Colors.blue,
+          backgroundColor: message.source == 'gmail'
+              ? Colors.red.shade700
+              : Colors.blue,
           child: Text(
             message.address.isNotEmpty ? message.address[0].toUpperCase() : '?',
             style: const TextStyle(color: Colors.white),
@@ -96,8 +97,8 @@ class MessageListItem extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: message.source == 'whatsapp'
-                ? Colors.green[100]
+            color: message.source == 'gmail'
+                ? Colors.red[100]
                 : Colors.blue[100],
             borderRadius: BorderRadius.circular(4),
           ),
@@ -106,8 +107,8 @@ class MessageListItem extends StatelessWidget {
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.bold,
-              color: message.source == 'whatsapp'
-                  ? Colors.green[700]
+              color: message.source == 'gmail'
+                  ? Colors.red[700]
                   : Colors.blue[700],
             ),
           ),

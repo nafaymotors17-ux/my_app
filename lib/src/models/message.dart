@@ -3,7 +3,7 @@ class Message {
   final String address;
   final String body;
   final DateTime date;
-  final String source; // 'sms', 'whatsapp', or 'gmail'
+  final String source; // 'sms' or 'gmail'
   final bool isRead;
   final String? subject; // Gmail subject
   final String? gmailTo; // Recipient for sent emails
