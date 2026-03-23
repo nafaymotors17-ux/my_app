@@ -10,6 +10,10 @@ class MessageCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onDelete;
   final VoidCallback? onToggleRead;
+  final VoidCallback? onCheckAi;
+  final bool isCheckingAi;
+  final int? aiPrediction;
+  final String? aiResult;
 
   const MessageCard({
     super.key,
@@ -20,6 +24,10 @@ class MessageCard extends StatelessWidget {
     required this.onTap,
     this.onDelete,
     this.onToggleRead,
+    this.onCheckAi,
+    this.isCheckingAi = false,
+    this.aiPrediction,
+    this.aiResult,
   });
 
   @override
@@ -181,6 +189,62 @@ class MessageCard extends StatelessWidget {
                         height: 1.35,
                       ),
                     ),
+                    if (onCheckAi != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          FilledButton.icon(
+                            onPressed: isCheckingAi ? null : onCheckAi,
+                            icon: isCheckingAi
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.security_outlined, size: 16),
+                            label: Text(
+                              isCheckingAi
+                                  ? 'Checking...'
+                                  : isGmail
+                                      ? 'Check email'
+                                      : 'Check AI',
+                            ),
+                            style: FilledButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                            ),
+                          ),
+                          if (aiPrediction != null && aiResult != null) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: aiPrediction == 1
+                                    ? Colors.red.shade100
+                                    : Colors.green.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                aiResult!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: aiPrediction == 1
+                                      ? Colors.red.shade800
+                                      : Colors.green.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),

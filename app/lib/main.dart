@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/pages/message_reader_page.dart';
+import 'package:my_app/src/pages/message_tabs_page.dart';
 import 'package:my_app/src/services/prefs_service.dart';
 
 Future<void> main() async {
@@ -36,7 +36,7 @@ class MyApp extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         ),
       ),
-      home: const MessageReaderPage(title: 'Phishing Detector'),
+      home: const MessageTabsPage(),
     );
   }
 }

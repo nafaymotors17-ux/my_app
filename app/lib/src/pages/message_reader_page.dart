@@ -7,7 +7,6 @@ import 'package:my_app/src/services/gmail_service.dart';
 import 'package:my_app/src/models/message.dart';
 import 'package:my_app/src/utils/responsive.dart';
 import 'package:my_app/src/widgets/empty_state_widget.dart';
-import 'package:my_app/src/widgets/filter_chips.dart';
 import 'package:my_app/src/widgets/gmail_status_button.dart';
 import 'package:my_app/src/widgets/message_card.dart';
 import 'package:my_app/src/pages/message_detail_page.dart';
@@ -15,9 +14,18 @@ import 'package:my_app/src/widgets/message_detail_panel.dart';
 import 'package:my_app/src/services/prefs_service.dart';
 import 'package:my_app/src/services/sms_ai_service.dart';
 class MessageReaderPage extends StatefulWidget {
-  const MessageReaderPage({super.key, required this.title});
+  const MessageReaderPage({
+    super.key,
+    required this.title,
+    required this.mode,
+    this.autoLoad = true,
+    this.showAppBar = true,
+  });
 
   final String title;
+  final MessageReaderMode mode;
+  final bool autoLoad;
+  final bool showAppBar;
 
   @override
   State<MessageReaderPage> createState() => _MessageReaderPageState();
@@ -27,6 +35,10 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
   late MessageReaderController _controller;
   Message? _selectedMessage; // For master-detail layout on wide screens
   final ScrollController _scrollController = ScrollController();
+  final Set<String> _checkingAiIds = <String>{};
+  final Map<String, int> _aiPredictions = <String, int>{};
+  final Map<String, String> _aiResults = <String, String>{};
+  bool _didInit = false;
 
   Future<void> _openAiSettings() async {
     final current = (await PrefsService.getAiBaseUrl()) ??
@@ -66,8 +78,22 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
   @override
   void initState() {
     super.initState();
-    _controller = MessageReaderController();
+    _controller = MessageReaderController(mode: widget.mode);
     _controller.addListener(_onControllerUpdate);
+    _maybeInit();
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageReaderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_didInit && widget.autoLoad) {
+      _maybeInit();
+    }
+  }
+
+  void _maybeInit() {
+    if (_didInit || !widget.autoLoad) return;
+    _didInit = true;
     _controller.init();
   }
 
@@ -253,6 +279,80 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
     await _controller.setGmailLabel(labelId);
   }
 
+  Future<void> _checkMessageWithAi(Message msg) async {
+    if (_checkingAiIds.contains(msg.id)) return;
+    setState(() => _checkingAiIds.add(msg.id));
+    try {
+      if (msg.source == 'sms') {
+        final result = await SmsAiService.checkSms(msg.body);
+        if (!mounted) return;
+        setState(() {
+          _aiPredictions[msg.id] = result.prediction;
+          _aiResults[msg.id] = result.result;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.prediction == 1
+                  ? 'Red flag: likely phishing SMS'
+                  : 'Looks safe',
+            ),
+            backgroundColor:
+                result.prediction == 1 ? Colors.red : Colors.green,
+          ),
+        );
+      } else if (msg.source == 'gmail') {
+        if (!_controller.gmailSignedIn) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sign in to Gmail first'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
+        final gmailId = msg.id.replaceFirst('gmail_', '');
+        final fullBody = await GmailService.getEmailBodyForDisplay(gmailId);
+        final bodyToSend = (fullBody != null && fullBody.trim().isNotEmpty)
+            ? fullBody
+            : msg.body;
+
+        final res = await SmsAiService.checkEmailText(bodyToSend);
+        if (!mounted) return;
+
+        setState(() {
+          _aiPredictions[msg.id] = res.prediction;
+          _aiResults[msg.id] = res.result;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              res.prediction == 1
+                  ? 'Red flag: likely phishing email'
+                  : 'Looks safe',
+            ),
+            backgroundColor: res.prediction == 1 ? Colors.red : Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('AI check failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _checkingAiIds.remove(msg.id));
+      }
+    }
+  }
+
   void _showMessageDetail(Message msg) {
     if (ResponsiveBreakpoints.isWideScreen(context)) {
       setState(() => _selectedMessage = msg);
@@ -392,6 +492,12 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
                     isSelected: isSelected,
                     onTap: () => _showMessageDetail(msg),
                     onToggleRead: () => _controller.toggleRead(msg),
+                    onCheckAi: msg.source == 'gmail' && !_controller.gmailSignedIn
+                        ? null
+                        : () => _checkMessageWithAi(msg),
+                    isCheckingAi: _checkingAiIds.contains(msg.id),
+                    aiPrediction: _aiPredictions[msg.id],
+                    aiResult: _aiResults[msg.id],
                   ),
                 );
               },
@@ -403,14 +509,18 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
   }
 
   Widget _buildLoadMoreVisibleFooter(int total, int showing) {
-    final remaining = total - showing;
+    // When we have a `nextPageToken`, we can have `remaining == 0` even though
+    // more emails exist in Gmail. Use a simple fixed label.
+    const int chunk = 10;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Center(
         child: TextButton.icon(
-          onPressed: _controller.gmailHasMoreVisible ? _controller.loadMoreVisible : null,
+          onPressed: _controller.gmailHasMoreVisible
+              ? () async => _controller.loadMoreVisible()
+              : null,
           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 22),
-          label: Text('Show ${remaining > 25 ? 25 : remaining} more'),
+          label: Text('Show $chunk more'),
           style: TextButton.styleFrom(
             foregroundColor: Theme.of(context).colorScheme.primary,
           ),
@@ -423,6 +533,51 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
   Widget build(BuildContext context) {
     final isWide = ResponsiveBreakpoints.isWideScreen(context);
     final isNarrow = !ResponsiveBreakpoints.isMediumOrWider(context);
+
+    final Widget content = SafeArea(
+      child: isWide
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Master: message list
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: _buildMessageList()),
+                    ],
+                  ),
+                ),
+                // Detail panel
+                SizedBox(
+                  width: (MediaQuery.sizeOf(context).width * 0.4).clamp(320.0, 500.0),
+                  child: MessageDetailPanel(
+                    message: _selectedMessage,
+                    isRead: _selectedMessage != null
+                        ? _controller.isMessageRead(_selectedMessage!)
+                        : false,
+                    fullBodyFuture: _selectedMessage != null &&
+                            _selectedMessage!.source == 'gmail'
+                        ? GmailService.getEmailBodyForDisplay(
+                            _selectedMessage!.id.replaceFirst('gmail_', ''),
+                          ).then((body) => body ?? _selectedMessage!.body)
+                        : null,
+                    onToggleRead: _selectedMessage != null
+                        ? () => _controller.toggleRead(_selectedMessage!)
+                        : null,
+                  ),
+                ),
+              ],
+            )
+          : Column(
+              children: [
+                Expanded(child: _buildMessageList()),
+              ],
+            ),
+    );
+
+    if (!widget.showAppBar) return content;
 
     return Scaffold(
       appBar: AppBar(
@@ -467,51 +622,53 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
                 }
               },
               itemBuilder: (context) => [
-                if (_controller.gmailSignedIn) ...[
-                  PopupMenuItem(
-                    enabled: false,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.mail, color: Colors.red),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _controller.gmailUserEmail ?? 'Gmail',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.grey[800],
-                              fontSize: 13,
+                if (widget.mode == MessageReaderMode.email) ...[
+                  if (_controller.gmailSignedIn) ...[
+                    PopupMenuItem(
+                      enabled: false,
+                      child: Row(
+                        children: [
+                          const Icon(Icons.mail, color: Colors.red),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _controller.gmailUserEmail ?? 'Gmail',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.grey[800],
+                                fontSize: 13,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'gmail_signout',
-                    child: Row(
-                      children: [
-                        Icon(Icons.logout, color: Colors.red),
-                        SizedBox(width: 12),
-                        Text(
-                          'Sign out of Gmail',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      ],
+                    const PopupMenuItem(
+                      value: 'gmail_signout',
+                      child: Row(
+                        children: [
+                          Icon(Icons.logout, color: Colors.red),
+                          SizedBox(width: 12),
+                          Text(
+                            'Sign out of Gmail',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ] else
-                  const PopupMenuItem(
-                    value: 'gmail_signin',
-                    child: Row(
-                      children: [
-                        Icon(Icons.mail_outline, color: Colors.grey),
-                        SizedBox(width: 12),
-                        Text('Sign in to Gmail'),
-                      ],
+                  ] else
+                    const PopupMenuItem(
+                      value: 'gmail_signin',
+                      child: Row(
+                        children: [
+                          Icon(Icons.mail_outline, color: Colors.grey),
+                          SizedBox(width: 12),
+                          Text('Sign in to Gmail'),
+                        ],
+                      ),
                     ),
-                  ),
-                const PopupMenuDivider(),
+                  const PopupMenuDivider(),
+                ],
                 const PopupMenuItem(
                   value: 'ai_settings',
                   child: Row(
@@ -535,11 +692,12 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
               ],
             ),
           ] else ...[
-            GmailStatusButton(
-              isSignedIn: _controller.gmailSignedIn,
-              userEmail: _controller.gmailUserEmail,
-              onTap: _handleGmailTap,
-            ),
+            if (widget.mode == MessageReaderMode.email)
+              GmailStatusButton(
+                isSignedIn: _controller.gmailSignedIn,
+                userEmail: _controller.gmailUserEmail,
+                onTap: _handleGmailTap,
+              ),
             IconButton(
               icon: const Icon(Icons.settings_outlined),
               tooltip: 'AI API settings',
@@ -553,64 +711,7 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
           ],
         ],
       ),
-      body: SafeArea(
-        child: isWide
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Master: message list
-                  Expanded(
-                    flex: 1,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        FilterChips(
-                          selectedFilter: _controller.selectedFilter,
-                          onFilterChanged: _handleFilterChanged,
-                          selectedGmailLabel: _controller.selectedGmailLabel,
-                          onGmailLabelChanged: _handleGmailLabelChanged,
-                          gmailSignedIn: _controller.gmailSignedIn,
-                          gmailLoading: _controller.gmailLoading,
-                        ),
-                        Expanded(child: _buildMessageList()),
-                      ],
-                    ),
-                  ),
-                  // Detail panel
-                  SizedBox(
-                    width: (MediaQuery.sizeOf(context).width * 0.4).clamp(320.0, 500.0),
-                    child: MessageDetailPanel(
-                      message: _selectedMessage,
-                      isRead: _selectedMessage != null
-                          ? _controller.isMessageRead(_selectedMessage!)
-                          : false,
-                      fullBodyFuture: _selectedMessage != null &&
-                              _selectedMessage!.source == 'gmail'
-                          ? GmailService.getEmailBodyForDisplay(
-                              _selectedMessage!.id.replaceFirst('gmail_', ''),
-                            ).then((body) => body ?? _selectedMessage!.body)
-                          : null,
-                      onToggleRead: _selectedMessage != null
-                          ? () => _controller.toggleRead(_selectedMessage!)
-                          : null,
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                children: [
-                  FilterChips(
-                    selectedFilter: _controller.selectedFilter,
-                    onFilterChanged: _handleFilterChanged,
-                    selectedGmailLabel: _controller.selectedGmailLabel,
-                    onGmailLabelChanged: _handleGmailLabelChanged,
-                    gmailSignedIn: _controller.gmailSignedIn,
-                    gmailLoading: _controller.gmailLoading,
-                  ),
-                  Expanded(child: _buildMessageList()),
-                ],
-              ),
-      ),
+      body: content,
     );
   }
 }

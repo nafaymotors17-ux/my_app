@@ -8,11 +8,15 @@ import 'package:my_app/src/services/gmail_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum MessageReaderMode { sms, email }
+
 class MessageReaderController extends ChangeNotifier {
+  final MessageReaderMode mode;
+
   List<Message> allMessages = [];
   List<Message> displayedMessages = [];
   bool isLoading = false;
-  String selectedFilter = 'sms'; // 'sms', 'gmail'
+  late String selectedFilter; // 'sms', 'gmail'
   String selectedGmailLabel = GmailLabels.inbox; // INBOX only (unread)
   bool gmailSignedIn = false;
   String? gmailUserEmail;
@@ -21,9 +25,17 @@ class MessageReaderController extends ChangeNotifier {
   Set<String> clearedIds = <String>{};
   // Gmail: load all at once, then paginate on frontend
   bool gmailLoading = false;
-  static const int _initialVisibleCount = 25;
-  static const int _loadMoreVisibleCount = 25;
+  // Email list: fetch chunks from Gmail on demand (instead of loading everything).
+  static const int _initialVisibleCount = 10;
+  static const int _loadMoreVisibleCount = 10;
+  static const int _gmailPageSize = 10;
   int _gmailVisibleCount = _initialVisibleCount;
+  String? _gmailNextPageToken;
+  bool _gmailLoadingNextPage = false;
+
+  MessageReaderController({required this.mode}) {
+    selectedFilter = mode == MessageReaderMode.sms ? 'sms' : 'gmail';
+  }
 
   /// Messages to show in the list (for Gmail we only show the first N and let user tap "Show more").
   List<Message> get visibleMessages {
@@ -36,25 +48,73 @@ class MessageReaderController extends ChangeNotifier {
 
   bool get gmailHasMoreVisible =>
       selectedFilter == 'gmail' &&
-      _gmailVisibleCount < displayedMessages.length;
+      (displayedMessages.length > _gmailVisibleCount ||
+          (_gmailNextPageToken != null && _gmailNextPageToken!.isNotEmpty));
 
-  void loadMoreVisible() {
+  Future<void> loadMoreVisible() async {
     if (!gmailHasMoreVisible) return;
-    _gmailVisibleCount = (_gmailVisibleCount + _loadMoreVisibleCount).clamp(
-      0,
-      displayedMessages.length,
-    );
+    if (selectedFilter != 'gmail') return;
+    if (_gmailLoadingNextPage) return;
+
+    // If we already have enough items loaded locally, just increase the visible window.
+    if (_gmailVisibleCount < displayedMessages.length) {
+      _gmailVisibleCount = (_gmailVisibleCount + _loadMoreVisibleCount).clamp(
+        0,
+        displayedMessages.length,
+      );
+      notifyListeners();
+      return;
+    }
+
+    // Otherwise, fetch next Gmail page and append.
+    if (!gmailSignedIn) return;
+    if (_gmailNextPageToken == null || _gmailNextPageToken!.isEmpty) return;
+
+    _gmailLoadingNextPage = true;
     notifyListeners();
+
+    try {
+      final result = await GmailService.fetchEmailsByLabelPage(
+        labelId: selectedGmailLabel,
+        pageToken: _gmailNextPageToken,
+        maxResults: _gmailPageSize,
+        unreadOnly: true,
+      );
+
+      _gmailNextPageToken = result.nextPageToken;
+      final nextMessages = result.emails
+          .map(_emailToMessage)
+          .where((m) => !allMessages.any((x) => x.id == m.id))
+          .toList();
+
+      allMessages = [
+        ...allMessages,
+        ...nextMessages,
+      ];
+      allMessages.sort((a, b) => b.date.compareTo(a.date));
+
+      filterMessages(); // updates displayedMessages
+      _gmailVisibleCount = (_gmailVisibleCount + _loadMoreVisibleCount)
+          .clamp(0, displayedMessages.length);
+      notifyListeners();
+    } finally {
+      _gmailLoadingNextPage = false;
+      notifyListeners();
+    }
   }
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     readIds = _prefs?.getStringList('read_ids')?.toSet() ?? <String>{};
     clearedIds = _prefs?.getStringList('cleared_ids')?.toSet() ?? <String>{};
-    // Check Gmail status BEFORE loading messages, so gmailSignedIn is set
-    // when loadAllMessages() decides whether to fetch Gmail emails.
-    await _checkGmailStatus();
-    await requestPermissionsAndLoadMessages();
+    if (mode == MessageReaderMode.email) {
+      // Email tab: only initialize Gmail side.
+      await _checkGmailStatus();
+      await loadAllMessages();
+    } else {
+      // SMS tab: only initialize SMS side.
+      await requestPermissionsAndLoadMessages();
+    }
   }
 
   Future<void> requestPermissionsAndLoadMessages() async {
@@ -72,42 +132,48 @@ class MessageReaderController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Load SMS messages with read/unread status
-      final List<dynamic> smsMessages =
-          await PlatformService.getSmsMessagesWithReadStatus();
-      final List<Message> smsList = (smsMessages)
-          .map((message) {
-            final Map<dynamic, dynamic> msg = message as Map<dynamic, dynamic>;
-            final int ts = msg['date'] as int? ?? 0;
-            final String src = msg['source'] as String? ?? 'sms';
-            final String address = msg['address'] as String? ?? 'Unknown';
-            final bool smsIsRead = msg['isRead'] as bool? ?? false;
-            final String id = '${src}_${ts}_${address}';
-            return Message(
-              id: id,
-              address: address,
-              body: msg['body'] as String? ?? 'No content',
-              date: DateTime.fromMillisecondsSinceEpoch(ts),
-              source: src,
-              isRead: smsIsRead,
-            );
-          })
-          .where((m) => !m.isRead)
-          .toList(); // Only unread SMS
+      final List<Message> smsList = selectedFilter == 'sms'
+          ? (await PlatformService.getSmsMessagesWithReadStatus())
+              .map((message) {
+                final Map<dynamic, dynamic> msg =
+                    message as Map<dynamic, dynamic>;
+                final int ts = msg['date'] as int? ?? 0;
+                final String src = msg['source'] as String? ?? 'sms';
+                final String address = msg['address'] as String? ?? 'Unknown';
+                final bool smsIsRead = msg['isRead'] as bool? ?? false;
+                final String id = '${src}_${ts}_${address}';
+                return Message(
+                  id: id,
+                  address: address,
+                  body: msg['body'] as String? ?? 'No content',
+                  date: DateTime.fromMillisecondsSinceEpoch(ts),
+                  source: src,
+                  isRead: smsIsRead,
+                );
+              })
+              .where((m) => !m.isRead)
+              .toList() // Only unread SMS
+          : <Message>[];
 
-      // Load all Gmail at once when signed in (frontend pagination)
-      List<Message> gmailList = [];
-      if (gmailSignedIn) {
+      // Email tab: load the first small page only.
+      List<Message> gmailList = <Message>[];
+      if (selectedFilter == 'gmail' && gmailSignedIn) {
         try {
-          gmailList = (await GmailService.fetchAllEmailsByLabel(
+          _gmailNextPageToken = null;
+          final result = await GmailService.fetchEmailsByLabelPage(
             labelId: selectedGmailLabel,
-            pageSize: GmailService.defaultPageSize,
-            maxTotalResults: 500,
-          )).map(_emailToMessage).toList();
+            pageToken: null,
+            maxResults: _gmailPageSize,
+            unreadOnly: true,
+          );
+          _gmailNextPageToken = result.nextPageToken;
+          gmailList = result.emails.map(_emailToMessage).toList();
           _gmailVisibleCount = _initialVisibleCount;
         } catch (e) {
           print('Error loading Gmail in loadAllMessages: $e');
         }
+      } else {
+        _gmailNextPageToken = null;
       }
 
       // Combine all messages
@@ -167,6 +233,8 @@ class MessageReaderController extends ChangeNotifier {
   Future<void> _loadGmailWithLoadingState({String? labelId}) async {
     gmailLoading = true;
     allMessages = allMessages.where((m) => m.source != 'gmail').toList();
+    _gmailNextPageToken = null;
+    _gmailLoadingNextPage = false;
     _gmailVisibleCount = _initialVisibleCount;
     filterMessages();
     notifyListeners();
@@ -294,11 +362,15 @@ class MessageReaderController extends ChangeNotifier {
   Future<void> loadGmailEmails({String? labelId}) async {
     try {
       final label = labelId ?? selectedGmailLabel;
-      final gmailList = (await GmailService.fetchAllEmailsByLabel(
+      _gmailNextPageToken = null;
+      final result = await GmailService.fetchEmailsByLabelPage(
         labelId: label,
-        pageSize: GmailService.defaultPageSize,
-        maxTotalResults: 500,
-      )).map(_emailToMessage).toList();
+        pageToken: null,
+        maxResults: _gmailPageSize,
+        unreadOnly: true,
+      );
+      _gmailNextPageToken = result.nextPageToken;
+      final gmailList = result.emails.map(_emailToMessage).toList();
 
       if (gmailList.isEmpty && gmailSignedIn && !GmailAuthService.hasUser) {
         print(
@@ -332,6 +404,8 @@ class MessageReaderController extends ChangeNotifier {
       await GmailAuthService.signOut();
       gmailSignedIn = false;
       gmailUserEmail = null;
+      _gmailNextPageToken = null;
+      _gmailLoadingNextPage = false;
       _gmailVisibleCount = _initialVisibleCount;
       allMessages = allMessages.where((m) => m.source != 'gmail').toList();
       filterMessages();

@@ -32,9 +32,13 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/app/.dart_tool/
+/app/.flutter-plugins-dependencies
+/app/build/
 
 # Python (FastAPI / model API)
 .venv/
+backend/.venv/
 __pycache__/
 *.pyd
 *.pyo
@@ -49,3 +53,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/app/android/app/debug
+/app/android/app/profile
+/app/android/app/release

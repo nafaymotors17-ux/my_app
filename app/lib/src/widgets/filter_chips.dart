@@ -33,7 +33,7 @@ class FilterChips extends StatelessWidget {
               children: [
                 _buildFilterChip(context, 'SMS', 'sms'),
                 const SizedBox(width: 8),
-                _buildFilterChip(context, 'Gmail', 'gmail'),
+                _buildFilterChip(context, 'Email', 'gmail'),
               ],
             ),
           ),

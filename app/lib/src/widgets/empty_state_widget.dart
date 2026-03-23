@@ -18,7 +18,7 @@ class EmptyStateWidget extends StatelessWidget {
         ? 'No emails here'
         : 'No unread SMS messages';
     final subtitle = isGmail
-        ? 'Pull down to refresh or switch folder'
+        ? 'Sign in to Gmail to load emails'
         : 'Grant SMS permission to load messages';
     return Center(
       child: Padding(
