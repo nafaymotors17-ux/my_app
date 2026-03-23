@@ -33,12 +33,6 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# Python (FastAPI / model API)
-.venv/
-__pycache__/
-*.pyd
-*.pyo
-
 # Symbolication related
 app.*.symbols
 

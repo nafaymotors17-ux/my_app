@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:my_app/src/services/prefs_service.dart';
 
+/// HTTP client for the phishing API (separate Python service; configure base URL in settings).
 class SmsAiResult {
   final int prediction; // 0=safe, 1=phishing
   final String result; // "Safe" / "Phishing"

@@ -21,6 +21,8 @@ class PlatformService {
       return res ?? <dynamic>[];
     } on PlatformException {
       return <dynamic>[];
+    } on MissingPluginException {
+      return <dynamic>[];
     }
   }
 }
