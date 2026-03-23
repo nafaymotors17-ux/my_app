@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:my_app/src/models/message.dart';
@@ -118,6 +119,10 @@ class MessageReaderController extends ChangeNotifier {
   }
 
   Future<void> requestPermissionsAndLoadMessages() async {
+    if (kIsWeb) {
+      await loadAllMessages();
+      return;
+    }
     final PermissionStatus status = await Permission.sms.request();
 
     if (status.isGranted) {
