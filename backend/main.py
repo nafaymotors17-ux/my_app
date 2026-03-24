@@ -41,7 +41,7 @@ APP_ROOT = Path(__file__).resolve().parent
 MODELS_DIR = APP_ROOT / "models"
 
 VECTORIZER_PATH = MODELS_DIR / "tfidf_vectorizer.pkl"
-SMS_MODEL_PATH = MODELS_DIR / "email_phishing_model.pkl"
+SMS_MODEL_PATH = MODELS_DIR / "sms_rf_model (1) (1).pkl"
 URL_MODEL_PATH = MODELS_DIR / "url_phishing_model.pkl"
 
 
@@ -423,7 +423,7 @@ def check_email(req: EmailRequest) -> EmailCheckResponse:
     return EmailCheckResponse(
         email_prediction=email_pred,
         email_result=email_result,
-        links=link_predictions
+        links=link_predictions,
         overall_prediction=overall_pred,
         overall_result=overall_result,
     )
