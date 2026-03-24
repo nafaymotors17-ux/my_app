@@ -52,9 +52,9 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
-            hintText: 'http://10.0.2.2:8000',
+            hintText: 'http://10.0.2.2:8001',
             helperText:
-                'Android emulator: http://10.0.2.2:8000\nReal phone: http://<PC-LAN-IP>:8000',
+                'Android emulator: http://10.0.2.2:8001\nReal phone (USB adb reverse): http://127.0.0.1:8001\nReal phone (Wi-Fi): http://<PC-LAN-IP>:8001',
           ),
           autocorrect: false,
           keyboardType: TextInputType.url,

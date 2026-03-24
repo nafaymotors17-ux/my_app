@@ -93,10 +93,10 @@ class UrlLinksResult {
 
 class SmsAiService {
   static String defaultBaseUrl() {
-    if (kIsWeb) return 'http://127.0.0.1:8000';
+    if (kIsWeb) return 'http://127.0.0.1:8001';
     // Prefer USB-debug real device flow via adb reverse.
-    if (Platform.isAndroid) return 'http://127.0.0.1:8000';
-    return 'http://127.0.0.1:8000';
+    if (Platform.isAndroid) return 'http://127.0.0.1:8001';
+    return 'http://127.0.0.1:8001';
   }
 
   static Future<String> getBaseUrl() async {
@@ -106,7 +106,7 @@ class SmsAiService {
 
   static Future<SmsAiResult> checkSms(String message) async {
     final savedBaseUrl = await getBaseUrl();
-    final androidUsbBaseUrl = 'http://127.0.0.1:8000';
+    final androidUsbBaseUrl = 'http://127.0.0.1:8001';
 
     final candidates = <String>[savedBaseUrl];
     if (Platform.isAndroid && savedBaseUrl != androidUsbBaseUrl) {
@@ -138,13 +138,13 @@ class SmsAiService {
 
     throw Exception(
       lastError?.toString() ??
-          'Could not connect to backend. On your PC run: adb reverse tcp:8000 tcp:8000',
+          'Could not connect to backend. On your PC run: adb reverse tcp:8001 tcp:8001',
     );
   }
 
   static Future<EmailCheckResult> checkEmail(String emailBody) async {
     final savedBaseUrl = await getBaseUrl();
-    final androidUsbBaseUrl = 'http://127.0.0.1:8000';
+    final androidUsbBaseUrl = 'http://127.0.0.1:8001';
 
     final candidates = <String>[savedBaseUrl];
     if (Platform.isAndroid && savedBaseUrl != androidUsbBaseUrl) {
@@ -176,13 +176,13 @@ class SmsAiService {
 
     throw Exception(
       lastError?.toString() ??
-          'Could not connect to backend. On your PC run: adb reverse tcp:8000 tcp:8000',
+          'Could not connect to backend. On your PC run: adb reverse tcp:8001 tcp:8001',
     );
   }
 
   static Future<SmsAiResult> checkEmailText(String emailBody) async {
     final savedBaseUrl = await getBaseUrl();
-    final androidUsbBaseUrl = 'http://127.0.0.1:8000';
+    final androidUsbBaseUrl = 'http://127.0.0.1:8001';
 
     final candidates = <String>[savedBaseUrl];
     if (Platform.isAndroid && savedBaseUrl != androidUsbBaseUrl) {
@@ -214,13 +214,13 @@ class SmsAiService {
 
     throw Exception(
       lastError?.toString() ??
-          'Could not connect to backend. On your PC run: adb reverse tcp:8000 tcp:8000',
+          'Could not connect to backend. On your PC run: adb reverse tcp:8001 tcp:8001',
     );
   }
 
   static Future<UrlLinksResult> checkUrls(List<String> urls) async {
     final savedBaseUrl = await getBaseUrl();
-    final androidUsbBaseUrl = 'http://127.0.0.1:8000';
+    final androidUsbBaseUrl = 'http://127.0.0.1:8001';
 
     final candidates = <String>[savedBaseUrl];
     if (Platform.isAndroid && savedBaseUrl != androidUsbBaseUrl) {
@@ -252,7 +252,7 @@ class SmsAiService {
 
     throw Exception(
       lastError?.toString() ??
-          'Could not connect to backend. On your PC run: adb reverse tcp:8000 tcp:8000',
+          'Could not connect to backend. On your PC run: adb reverse tcp:8001 tcp:8001',
     );
   }
 }
