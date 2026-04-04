@@ -15,18 +15,16 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
   bool _loading = false;
   SmsAiResult? _result;
   String? _error;
-  String? _baseUrl;
 
   @override
-  void initState() {
-    super.initState();
-    _loadBaseUrl();
-  }
-
-  Future<void> _loadBaseUrl() async {
-    final url = await SmsAiService.getBaseUrl();
-    if (!mounted) return;
-    setState(() => _baseUrl = url);
+  void didUpdateWidget(covariant SmsAiCheckCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.messageText != widget.messageText) {
+      setState(() {
+        _result = null;
+        _error = null;
+      });
+    }
   }
 
   Future<void> _runCheck() async {
@@ -39,28 +37,47 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
     try {
       final res = await SmsAiService.checkSms(widget.messageText);
       if (mounted) setState(() => _result = res);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+    } catch (e, st) {
+      debugPrint('SMS AI check failed: $e');
+      debugPrint('$st');
+      if (mounted) {
+        setState(() => _error = SmsAiService.describeNetworkError(e));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _editBaseUrl() async {
-    final current = _baseUrl ?? SmsAiService.defaultBaseUrl();
+  Future<void> _editServer() async {
+    final current = await SmsAiService.getBaseUrl();
+    if (!mounted) return;
     final controller = TextEditingController(text: current);
     final saved = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('AI API Base URL'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Example',
-            hintText: 'http://10.0.2.2:8000',
-          ),
-          autocorrect: false,
-          keyboardType: TextInputType.url,
+        title: const Text('Detector server'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Base URL only (no path). Default is the production detector.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: SmsAiService.productionBaseUrl,
+                border: const OutlineInputBorder(),
+              ),
+              autocorrect: false,
+              keyboardType: TextInputType.url,
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -79,7 +96,6 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
     await PrefsService.setAiBaseUrl(saved);
     if (!mounted) return;
     setState(() {
-      _baseUrl = saved;
       _result = null;
       _error = null;
     });
@@ -88,93 +104,203 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isPhishing = _result?.prediction == 1;
-    final badgeColor = isPhishing ? Colors.red : Colors.green;
+    final r = _result;
+    final isPhishing = r != null && r.prediction == 1;
+    final showConfidence = r != null &&
+        r.prediction == 1 &&
+        r.phishingProbability != null;
 
     return Card(
       margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.security_rounded, size: 18),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'AI SMS Check',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: cs.primaryContainer,
+                  child: Icon(
+                    Icons.shield_rounded,
+                    color: cs.onPrimaryContainer,
+                    size: 24,
                   ),
                 ),
-                if (_result != null)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: badgeColor.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: badgeColor.withValues(alpha: 0.35),
-                      ),
-                    ),
-                    child: Text(
-                      _result!.result,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: badgeColor,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    _baseUrl == null ? 'API: loading…' : 'API: $_baseUrl',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: cs.outline),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Message scan',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Check this SMS for phishing before you tap links or reply.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: cs.outline,
+                              height: 1.35,
+                            ),
+                      ),
+                    ],
                   ),
                 ),
-                TextButton(
-                  onPressed: _loading ? null : _editBaseUrl,
-                  child: const Text('Change'),
+                IconButton(
+                  tooltip: 'Detector server',
+                  onPressed: _loading ? null : _editServer,
+                  icon: const Icon(Icons.tune_rounded),
                 ),
               ],
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 6),
-              Text(
+          ),
+          if (r != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: isPhishing
+                      ? const Color(0xFFFFF1F2)
+                      : const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isPhishing
+                        ? const Color(0xFFFECDD3)
+                        : const Color(0xFFBBF7D0),
+                    width: 1,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            isPhishing
+                                ? Icons.warning_amber_rounded
+                                : Icons.verified_rounded,
+                            size: 22,
+                            color: isPhishing
+                                ? const Color(0xFFB91C1C)
+                                : const Color(0xFF15803D),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              isPhishing
+                                  ? 'Potential phishing'
+                                  : 'No phishing detected',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (isPhishing) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Do not tap links, share codes, or send money. '
+                          'If it claims to be your bank or carrier, contact them through their official app or number.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.4,
+                            color: cs.onSurface.withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ],
+                      if (showConfidence) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Phishing confidence',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: cs.outline,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: LinearProgressIndicator(
+                            value: r.phishingProbability!.clamp(0.0, 1.0),
+                            minHeight: 8,
+                            backgroundColor: cs.surfaceContainerHighest,
+                            color: const Color(0xFFB91C1C),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          r.phishingConfidenceLine ?? '',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFB91C1C),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
                 _error!,
-                style: const TextStyle(fontSize: 12, color: Colors.red),
-                maxLines: 3,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFFB91C1C),
+                  height: 1.35,
+                ),
+                maxLines: 4,
                 overflow: TextOverflow.ellipsis,
               ),
-            ],
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _loading ? null : _runCheck,
-                icon: _loading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.play_arrow_rounded),
-                label: Text(_loading ? 'Checking…' : 'Check this SMS'),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: FilledButton.icon(
+              onPressed: _loading ? null : _runCheck,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: _loading
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.onPrimary,
+                      ),
+                    )
+                  : const Icon(Icons.radar_rounded, size: 22),
+              label: Text(
+                _loading ? 'Scanning…' : 'Scan this message',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
-

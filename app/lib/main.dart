@@ -18,20 +18,25 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6366F1),
+          seedColor: const Color(0xFF0F766E),
           brightness: Brightness.light,
-          primary: const Color(0xFF6366F1),
+          primary: const Color(0xFF0F766E),
         ),
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
           centerTitle: false,
           elevation: 0,
           scrolledUnderElevation: 1,
+          backgroundColor: Color(0xFFFAFAFA),
+          foregroundColor: Color(0xFF171717),
         ),
+        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
         cardTheme: CardThemeData(
-          elevation: 1,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
           ),
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         ),

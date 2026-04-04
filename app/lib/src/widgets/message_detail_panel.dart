@@ -211,7 +211,10 @@ class MessageDetailPanel extends StatelessWidget {
                   const Divider(height: 1),
                   const SizedBox(height: 16),
                   if (!isGmail) ...[
-                    SmsAiCheckCard(messageText: msg.body),
+                    SmsAiCheckCard(
+                      key: ValueKey(msg.id),
+                      messageText: msg.body,
+                    ),
                     const SizedBox(height: 16),
                     const Divider(height: 1),
                     const SizedBox(height: 16),

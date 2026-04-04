@@ -220,12 +220,16 @@ class _MessageDetailPageState extends State<MessageDetailPage> {
                   if (!isGmail)
                     Padding(
                       padding: EdgeInsets.fromLTRB(hp, 12, hp, 4),
-                      child: SmsAiCheckCard(messageText: msg.body),
+                      child: SmsAiCheckCard(
+                        key: ValueKey(msg.id),
+                        messageText: msg.body,
+                      ),
                     ),
                   if (isGmail)
                     Padding(
                       padding: EdgeInsets.fromLTRB(hp, 12, hp, 4),
                       child: EmailAiCheckCard(
+                        key: ValueKey(msg.id),
                         messageText: _richBody ?? msg.body,
                       ),
                     ),

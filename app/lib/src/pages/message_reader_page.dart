@@ -52,9 +52,9 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
-            hintText: 'http://10.0.2.2:8001',
+            hintText: SmsAiService.productionBaseUrl,
             helperText:
-                'Android emulator: http://10.0.2.2:8001\nReal phone (USB adb reverse): http://127.0.0.1:8001\nReal phone (Wi-Fi): http://<PC-LAN-IP>:8001',
+                'Production (Railway): ${SmsAiService.productionBaseUrl}\nLocal emulator: http://10.0.2.2:8001\nUSB adb reverse: http://127.0.0.1:8001',
           ),
           autocorrect: false,
           keyboardType: TextInputType.url,
@@ -290,12 +290,16 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
           _aiPredictions[msg.id] = result.prediction;
           _aiResults[msg.id] = result.result;
         });
+        final pct = result.prediction == 1 &&
+                result.phishingProbability != null
+            ? ' · ${result.phishingPercentLabel} confidence'
+            : '';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               result.prediction == 1
-                  ? 'Red flag: likely phishing SMS'
-                  : 'Looks safe',
+                  ? 'Phishing risk: SMS flagged$pct'
+                  : 'SMS looks safe',
             ),
             backgroundColor:
                 result.prediction == 1 ? Colors.red : Colors.green,
@@ -327,22 +331,32 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
           _aiResults[msg.id] = res.result;
         });
 
+        final pctMail = res.prediction == 1 &&
+                res.phishingProbability != null
+            ? ' · ${res.phishingPercentLabel} confidence'
+            : '';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               res.prediction == 1
-                  ? 'Red flag: likely phishing email'
-                  : 'Looks safe',
+                  ? 'Phishing risk: email flagged$pctMail'
+                  : 'Email looks safe',
             ),
             backgroundColor: res.prediction == 1 ? Colors.red : Colors.green,
           ),
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('Check AI failed: $e');
+      debugPrint('$st');
       if (!mounted) return;
+      final friendly = SmsAiService.describeNetworkError(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('AI check failed: $e'),
+          content: Text(
+            'AI check failed: $friendly',
+            maxLines: 4,
+          ),
           backgroundColor: Colors.red,
         ),
       );
