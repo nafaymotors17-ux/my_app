@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:my_app/src/models/message.dart';
+import 'package:my_app/src/models/phishing_scan_record.dart';
 import 'package:my_app/src/utils/date_time_utils.dart';
 
 class MessageCard extends StatelessWidget {
@@ -8,12 +9,12 @@ class MessageCard extends StatelessWidget {
   final bool isRead;
   final bool isSelected;
   final VoidCallback onTap;
-  final VoidCallback? onDelete;
-  final VoidCallback? onToggleRead;
-  final VoidCallback? onCheckAi;
-  final bool isCheckingAi;
-  final int? aiPrediction;
-  final String? aiResult;
+  final PhishingScanRecord? aiScan;
+
+  /// Multi-select batch scan mode — tap toggles [isChecked].
+  final bool selectionMode;
+  final bool isChecked;
+  final VoidCallback? onLongPress;
 
   const MessageCard({
     super.key,
@@ -22,12 +23,10 @@ class MessageCard extends StatelessWidget {
     required this.isRead,
     this.isSelected = false,
     required this.onTap,
-    this.onDelete,
-    this.onToggleRead,
-    this.onCheckAi,
-    this.isCheckingAi = false,
-    this.aiPrediction,
-    this.aiResult,
+    this.aiScan,
+    this.selectionMode = false,
+    this.isChecked = false,
+    this.onLongPress,
   });
 
   @override
@@ -41,33 +40,45 @@ class MessageCard extends StatelessWidget {
 
     final title = isGmail ? (msg.subject ?? '(No subject)') : msg.address;
 
+    final bool showSingleStrip = isSelected && !selectionMode;
+    final Color borderColor = selectionMode && isChecked
+        ? cs.primary
+        : showSingleStrip
+            ? cs.primary
+            : isSpam
+                ? const Color(0xFFFDBA74)
+                : cs.outline.withValues(alpha: 0.12);
+    final double borderW =
+        (selectionMode && isChecked) || showSingleStrip ? 2 : 1;
+
     return Material(
       color: cs.surface,
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: isSelected
-              ? cs.primary
-              : isSpam
-                  ? const Color(0xFFFDBA74)
-                  : cs.outline.withValues(alpha: 0.12),
-          width: isSelected ? 2 : 1,
-        ),
+        side: BorderSide(color: borderColor, width: borderW),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (isSelected)
-                Container(width: 4, color: cs.primary),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
-                  child: Column(
+        onLongPress: onLongPress,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (selectionMode)
+              Padding(
+                padding: const EdgeInsets.only(left: 4, top: 10),
+                child: Checkbox(
+                  value: isChecked,
+                  onChanged: (_) => onTap(),
+                ),
+              )
+            else if (showSingleStrip)
+              Container(width: 4, color: cs.primary),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
@@ -172,6 +183,11 @@ class MessageCard extends StatelessWidget {
                                           : 'SMS',
                                       color: sourceColor,
                                     ),
+                                    if (aiScan != null)
+                                      _AiChip(
+                                        isPhishing: aiScan!.isPhishing,
+                                        confidence: aiScan!.phishingProbability,
+                                      ),
                                     if (isRead)
                                       Icon(
                                         Icons.done_all_rounded,
@@ -206,61 +222,6 @@ class MessageCard extends StatelessWidget {
                                     fontSize: 13,
                                   ),
                                 ),
-                                if (onCheckAi != null) ...[
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    children: [
-                                      FilledButton.tonalIcon(
-                                        onPressed:
-                                            isCheckingAi ? null : onCheckAi,
-                                        icon: isCheckingAi
-                                            ? SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  color: cs.primary,
-                                                ),
-                                              )
-                                            : Icon(
-                                                Icons.shield_rounded,
-                                                size: 18,
-                                                color: cs.primary,
-                                              ),
-                                        label: Text(
-                                          isCheckingAi
-                                              ? 'Scanning…'
-                                              : isGmail
-                                                  ? 'Scan email'
-                                                  : 'Scan SMS',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                        style: FilledButton.styleFrom(
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 10,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                        ),
-                                      ),
-                                      if (aiPrediction != null &&
-                                          aiResult != null)
-                                        _AiResultChip(
-                                          prediction: aiPrediction!,
-                                          label: aiResult!,
-                                        ),
-                                    ],
-                                  ),
-                                ],
                               ],
                             ),
                           ),
@@ -270,33 +231,7 @@ class MessageCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  if (onToggleRead != null)
-                    IconButton(
-                      icon: Icon(
-                        isRead
-                            ? Icons.mark_email_unread_outlined
-                            : Icons.mark_email_read_outlined,
-                        size: 20,
-                      ),
-                      tooltip: isRead ? 'Mark unread' : 'Mark read',
-                      onPressed: onToggleRead,
-                      color: isRead ? cs.outline : cs.primary,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  if (onDelete != null)
-                    IconButton(
-                      icon: Icon(Icons.delete_outline_rounded, size: 20, color: cs.outline),
-                      tooltip: 'Remove',
-                      onPressed: onDelete,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                ],
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     );
@@ -330,46 +265,45 @@ class _SourceChip extends StatelessWidget {
   }
 }
 
-class _AiResultChip extends StatelessWidget {
-  const _AiResultChip({
-    required this.prediction,
-    required this.label,
-  });
+class _AiChip extends StatelessWidget {
+  const _AiChip({required this.isPhishing, this.confidence});
 
-  final int prediction;
-  final String label;
+  final bool isPhishing;
+  final double? confidence;
 
   @override
   Widget build(BuildContext context) {
-    final isRisk = prediction == 1;
+    final bg = isPhishing
+        ? const Color(0xFFFEE2E2)
+        : const Color(0xFFD1FAE5);
+    final fg = isPhishing
+        ? const Color(0xFFB91C1C)
+        : const Color(0xFF047857);
+    final pct = confidence != null
+        ? ' ${(confidence! * 100).clamp(0.0, 100.0).toStringAsFixed(0)}%'
+        : '';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: isRisk
-            ? const Color(0xFFFFF1F2)
-            : const Color(0xFFF0FDF4),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isRisk
-              ? const Color(0xFFFECDD3)
-              : const Color(0xFFBBF7D0),
-        ),
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isRisk ? Icons.warning_amber_rounded : Icons.verified_rounded,
-            size: 16,
-            color: isRisk ? const Color(0xFFB91C1C) : const Color(0xFF15803D),
+            isPhishing ? Icons.warning_amber_rounded : Icons.verified_rounded,
+            size: 12,
+            color: fg,
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           Text(
-            label,
+            isPhishing ? 'PHISHING$pct' : 'SAFE$pct',
             style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: isRisk ? const Color(0xFFB91C1C) : const Color(0xFF15803D),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.3,
+              color: fg,
             ),
           ),
         ],

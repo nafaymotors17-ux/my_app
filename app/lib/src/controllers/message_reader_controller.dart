@@ -2,14 +2,28 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:my_app/src/models/message.dart';
+import 'package:my_app/src/models/phishing_scan_record.dart';
 import 'package:my_app/src/services/platform_service.dart';
 import 'package:my_app/src/services/prefs_service.dart';
 import 'package:my_app/src/services/gmail_auth_service.dart';
 import 'package:my_app/src/services/gmail_service.dart';
+import 'package:my_app/src/services/sms_ai_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum MessageReaderMode { sms, email }
+
+/// Filters the current folder list by AI scan outcome (stored locally).
+enum InboxSegment {
+  /// Every message in the folder.
+  all,
+
+  /// Messages scanned and classified as phishing.
+  phishing,
+
+  /// Messages scanned and classified as safe (unscanned messages are hidden).
+  safe,
+}
 
 class MessageReaderController extends ChangeNotifier {
   final MessageReaderMode mode;
@@ -18,96 +32,130 @@ class MessageReaderController extends ChangeNotifier {
   List<Message> displayedMessages = [];
   bool isLoading = false;
   late String selectedFilter; // 'sms', 'gmail'
-  String selectedGmailLabel = GmailLabels.inbox; // INBOX only (unread)
+  InboxSegment inboxSegment = InboxSegment.all;
+
+  /// Persisted AI results for messages (SMS + Gmail ids).
+  Map<String, PhishingScanRecord> phishingScanById = {};
   bool gmailSignedIn = false;
   String? gmailUserEmail;
   SharedPreferences? _prefs;
   Set<String> readIds = <String>{};
   Set<String> clearedIds = <String>{};
-  // Gmail: load all at once, then paginate on frontend
   bool gmailLoading = false;
-  // Email list: fetch chunks from Gmail on demand (instead of loading everything).
-  static const int _initialVisibleCount = 10;
-  static const int _loadMoreVisibleCount = 10;
-  static const int _gmailPageSize = 10;
-  int _gmailVisibleCount = _initialVisibleCount;
+
+  /// Gmail: **Inbox · unread only** — one page at a time with explicit navigation.
+  static const int _gmailPageSize = 15;
+  final List<List<Message>> _gmailPageCache = [];
+  int _gmailPageIndex = 0;
   String? _gmailNextPageToken;
+  int _gmailResultSizeEstimate = 0;
   bool _gmailLoadingNextPage = false;
+
+  /// App only loads [GmailLabels.inbox] with unread filter (see Gmail API).
+  String get selectedGmailLabel => GmailLabels.inbox;
 
   MessageReaderController({required this.mode}) {
     selectedFilter = mode == MessageReaderMode.sms ? 'sms' : 'gmail';
   }
 
-  /// Messages to show in the list (for Gmail we only show the first N and let user tap "Show more").
+  /// Messages to show after [inboxSegment] filter (Gmail: current page only).
   List<Message> get visibleMessages {
-    if (selectedFilter != 'gmail' ||
-        displayedMessages.length <= _gmailVisibleCount) {
-      return displayedMessages;
+    final base = displayedMessages;
+    switch (inboxSegment) {
+      case InboxSegment.all:
+        return base;
+      case InboxSegment.phishing:
+        return base
+            .where((m) => phishingScanById[m.id]?.isPhishing == true)
+            .toList();
+      case InboxSegment.safe:
+        return base
+            .where(
+              (m) =>
+                  phishingScanById.containsKey(m.id) &&
+                  phishingScanById[m.id]!.isPhishing == false,
+            )
+            .toList();
     }
-    return displayedMessages.sublist(0, _gmailVisibleCount);
   }
 
-  bool get gmailHasMoreVisible =>
-      selectedFilter == 'gmail' &&
-      (displayedMessages.length > _gmailVisibleCount ||
-          (_gmailNextPageToken != null && _gmailNextPageToken!.isNotEmpty));
+  bool get gmailLoadingMore => _gmailLoadingNextPage;
 
-  Future<void> loadMoreVisible() async {
-    if (!gmailHasMoreVisible) return;
-    if (selectedFilter != 'gmail') return;
+  int get gmailPageNumber => _gmailPageCache.isEmpty ? 1 : _gmailPageIndex + 1;
+  int get gmailCachedPageCount => _gmailPageCache.length;
+  int get gmailResultSizeEstimate => _gmailResultSizeEstimate;
+
+  bool get gmailHasPreviousPage =>
+      selectedFilter == 'gmail' && _gmailPageIndex > 0;
+
+  /// Next page: another cached page, or fetch from API using [ _gmailNextPageToken ].
+  bool get gmailHasNextPage {
+    if (selectedFilter != 'gmail' || !gmailSignedIn) return false;
+    if (_gmailPageIndex + 1 < _gmailPageCache.length) return true;
+    return _gmailNextPageToken != null && _gmailNextPageToken!.isNotEmpty;
+  }
+
+  void gmailGoToPreviousPage() {
+    if (!gmailHasPreviousPage) return;
+    _gmailPageIndex--;
+    filterMessages();
+    notifyListeners();
+  }
+
+  Future<void> gmailGoToNextPage() async {
+    if (selectedFilter != 'gmail' || !gmailSignedIn) return;
     if (_gmailLoadingNextPage) return;
 
-    // If we already have enough items loaded locally, just increase the visible window.
-    if (_gmailVisibleCount < displayedMessages.length) {
-      _gmailVisibleCount = (_gmailVisibleCount + _loadMoreVisibleCount).clamp(
-        0,
-        displayedMessages.length,
-      );
+    if (_gmailPageIndex + 1 < _gmailPageCache.length) {
+      _gmailPageIndex++;
+      filterMessages();
       notifyListeners();
       return;
     }
 
-    // Otherwise, fetch next Gmail page and append.
-    if (!gmailSignedIn) return;
     if (_gmailNextPageToken == null || _gmailNextPageToken!.isEmpty) return;
 
     _gmailLoadingNextPage = true;
     notifyListeners();
-
     try {
       final result = await GmailService.fetchEmailsByLabelPage(
-        labelId: selectedGmailLabel,
+        labelId: GmailLabels.inbox,
         pageToken: _gmailNextPageToken,
         maxResults: _gmailPageSize,
         unreadOnly: true,
       );
-
       _gmailNextPageToken = result.nextPageToken;
-      final nextMessages = result.emails
-          .map(_emailToMessage)
-          .where((m) => !allMessages.any((x) => x.id == m.id))
-          .toList();
-
+      if (result.resultSizeEstimate > 0) {
+        _gmailResultSizeEstimate = result.resultSizeEstimate;
+      }
+      final page = result.emails.map(_emailToMessage).toList();
+      _gmailPageCache.add(page);
+      _gmailPageIndex = _gmailPageCache.length - 1;
       allMessages = [
-        ...allMessages,
-        ...nextMessages,
+        ...allMessages.where((m) => m.source != 'gmail'),
+        ..._gmailPageCache.expand((p) => p),
       ];
       allMessages.sort((a, b) => b.date.compareTo(a.date));
-
-      filterMessages(); // updates displayedMessages
-      _gmailVisibleCount = (_gmailVisibleCount + _loadMoreVisibleCount)
-          .clamp(0, displayedMessages.length);
-      notifyListeners();
+      filterMessages();
     } finally {
       _gmailLoadingNextPage = false;
       notifyListeners();
     }
   }
 
+  void _resetGmailPagination() {
+    _gmailPageCache.clear();
+    _gmailPageIndex = 0;
+    _gmailNextPageToken = null;
+    _gmailResultSizeEstimate = 0;
+  }
+
+
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     readIds = _prefs?.getStringList('read_ids')?.toSet() ?? <String>{};
     clearedIds = _prefs?.getStringList('cleared_ids')?.toSet() ?? <String>{};
+    phishingScanById = PrefsService.getPhishingScans();
     if (mode == MessageReaderMode.email) {
       // Email tab: only initialize Gmail side.
       await _checkGmailStatus();
@@ -164,27 +212,27 @@ class MessageReaderController extends ChangeNotifier {
       List<Message> gmailList = <Message>[];
       if (selectedFilter == 'gmail' && gmailSignedIn) {
         try {
-          _gmailNextPageToken = null;
+          _resetGmailPagination();
           final result = await GmailService.fetchEmailsByLabelPage(
-            labelId: selectedGmailLabel,
+            labelId: GmailLabels.inbox,
             pageToken: null,
             maxResults: _gmailPageSize,
             unreadOnly: true,
           );
           _gmailNextPageToken = result.nextPageToken;
+          _gmailResultSizeEstimate = result.resultSizeEstimate;
           gmailList = result.emails.map(_emailToMessage).toList();
-          _gmailVisibleCount = _initialVisibleCount;
+          _gmailPageCache.add(gmailList);
+          _gmailPageIndex = 0;
         } catch (e) {
           print('Error loading Gmail in loadAllMessages: $e');
         }
       } else {
-        _gmailNextPageToken = null;
+        _resetGmailPagination();
       }
 
-      // Combine all messages
       final List<Message> combined = [...smsList, ...gmailList];
       combined.sort((a, b) => b.date.compareTo(a.date));
-
       allMessages = combined;
       filterMessages();
       isLoading = false;
@@ -197,54 +245,68 @@ class MessageReaderController extends ChangeNotifier {
   }
 
   void filterMessages() {
-    List<Message> filtered;
     if (selectedFilter == 'gmail') {
-      filtered = allMessages.where((msg) {
-        if (msg.source != 'gmail') return false;
-        // Only inbox (unread) - no spam
-        return msg.gmailLabel == null || msg.gmailLabel == GmailLabels.inbox;
-      }).toList();
-    } else {
-      filtered = allMessages.where((msg) => msg.source == 'sms').toList();
+      if (_gmailPageCache.isEmpty) {
+        displayedMessages = [];
+      } else {
+        final page = _gmailPageCache[_gmailPageIndex];
+        displayedMessages =
+            page.where((m) => !clearedIds.contains(m.id)).toList();
+      }
+      notifyListeners();
+      return;
     }
-    displayedMessages = filtered
-        .where((m) => !clearedIds.contains(m.id))
-        .toList();
+    final filtered =
+        allMessages.where((msg) => msg.source == 'sms').toList();
+    displayedMessages =
+        filtered.where((m) => !clearedIds.contains(m.id)).toList();
     notifyListeners();
   }
+
+  void setInboxSegment(InboxSegment segment) {
+    if (inboxSegment == segment) return;
+    inboxSegment = segment;
+    notifyListeners();
+  }
+
+  Future<void> recordPhishingScan(Message msg, SmsAiResult result) async {
+    phishingScanById[msg.id] = PhishingScanRecord.fromMessage(msg, result);
+    await PrefsService.savePhishingScans(phishingScanById);
+    notifyListeners();
+  }
+
+  PhishingScanRecord? scanFor(String messageId) => phishingScanById[messageId];
 
   void setFilter(String filter) {
     selectedFilter = filter;
     filterMessages();
   }
 
+  /// Inbox-only app: kept for API compatibility; always reloads unread inbox.
   Future<void> setGmailLabel(String labelId) async {
-    if (selectedGmailLabel == labelId) return;
-    selectedGmailLabel = labelId;
     if (!gmailSignedIn) {
       filterMessages();
       notifyListeners();
       return;
     }
-    await _loadGmailWithLoadingState(labelId: labelId);
+    await _loadGmailWithLoadingState();
   }
 
   /// Load Gmail when user selects Gmail filter (first time or refresh)
   Future<void> loadGmailWhenFilterIsGmail() async {
     if (!gmailSignedIn || selectedFilter != 'gmail') return;
-    await _loadGmailWithLoadingState(labelId: selectedGmailLabel);
+    await _loadGmailWithLoadingState();
   }
 
-  Future<void> _loadGmailWithLoadingState({String? labelId}) async {
+  Future<void> _loadGmailWithLoadingState() async {
     gmailLoading = true;
     allMessages = allMessages.where((m) => m.source != 'gmail').toList();
-    _gmailNextPageToken = null;
+    _resetGmailPagination();
     _gmailLoadingNextPage = false;
-    _gmailVisibleCount = _initialVisibleCount;
     filterMessages();
     notifyListeners();
     await Future.delayed(Duration.zero);
-    await loadGmailEmails(labelId: labelId ?? selectedGmailLabel);
+    await loadGmailEmails();
     gmailLoading = false;
     notifyListeners();
   }
@@ -266,21 +328,23 @@ class MessageReaderController extends ChangeNotifier {
 
   void clearMessage(Message msg) {
     clearedIds.add(msg.id);
-    displayedMessages.removeWhere((m) => m.id == msg.id);
     saveLocalPrefs();
-    notifyListeners();
+    filterMessages();
   }
 
   Future<void> clearAll() async {
-    if (_prefs != null) {
-      await _prefs?.remove('read_ids');
-      await _prefs?.remove('cleared_ids');
-    }
+    await PrefsService.clearAll();
     readIds.clear();
     clearedIds.clear();
+    phishingScanById.clear();
+    _resetGmailPagination();
     allMessages.clear();
     displayedMessages.clear();
-    await saveLocalPrefs();
+    notifyListeners();
+  }
+
+  Future<void> reloadPhishingScans() async {
+    phishingScanById = PrefsService.getPhishingScans();
     notifyListeners();
   }
 
@@ -363,18 +427,18 @@ class MessageReaderController extends ChangeNotifier {
     );
   }
 
-  /// Load all Gmail emails at once (then frontend pagination shows first N).
-  Future<void> loadGmailEmails({String? labelId}) async {
+  /// Inbox unread only, page 1 — further pages use [gmailGoToNextPage].
+  Future<void> loadGmailEmails() async {
     try {
-      final label = labelId ?? selectedGmailLabel;
-      _gmailNextPageToken = null;
+      _resetGmailPagination();
       final result = await GmailService.fetchEmailsByLabelPage(
-        labelId: label,
+        labelId: GmailLabels.inbox,
         pageToken: null,
         maxResults: _gmailPageSize,
         unreadOnly: true,
       );
       _gmailNextPageToken = result.nextPageToken;
+      _gmailResultSizeEstimate = result.resultSizeEstimate;
       final gmailList = result.emails.map(_emailToMessage).toList();
 
       if (gmailList.isEmpty && gmailSignedIn && !GmailAuthService.hasUser) {
@@ -387,7 +451,8 @@ class MessageReaderController extends ChangeNotifier {
         return;
       }
 
-      _gmailVisibleCount = _initialVisibleCount;
+      _gmailPageCache.add(gmailList);
+      _gmailPageIndex = 0;
       allMessages = [
         ...allMessages.where((m) => m.source != 'gmail'),
         ...gmailList,
@@ -409,9 +474,8 @@ class MessageReaderController extends ChangeNotifier {
       await GmailAuthService.signOut();
       gmailSignedIn = false;
       gmailUserEmail = null;
-      _gmailNextPageToken = null;
       _gmailLoadingNextPage = false;
-      _gmailVisibleCount = _initialVisibleCount;
+      _resetGmailPagination();
       allMessages = allMessages.where((m) => m.source != 'gmail').toList();
       filterMessages();
       notifyListeners();

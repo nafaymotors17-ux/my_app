@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/services/prefs_service.dart';
 import 'package:my_app/src/services/sms_ai_service.dart';
 
 class SmsAiCheckCard extends StatefulWidget {
@@ -48,59 +47,6 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
     }
   }
 
-  Future<void> _editServer() async {
-    final current = await SmsAiService.getBaseUrl();
-    if (!mounted) return;
-    final controller = TextEditingController(text: current);
-    final saved = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Detector server'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Base URL only (no path). Default is the production detector.',
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context).colorScheme.outline,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              decoration: InputDecoration(
-                hintText: SmsAiService.productionBaseUrl,
-                border: const OutlineInputBorder(),
-              ),
-              autocorrect: false,
-              keyboardType: TextInputType.url,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (saved == null) return;
-    await PrefsService.setAiBaseUrl(saved);
-    if (!mounted) return;
-    setState(() {
-      _result = null;
-      _error = null;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -117,7 +63,7 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 8, 12),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -152,11 +98,6 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
                       ),
                     ],
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Detector server',
-                  onPressed: _loading ? null : _editServer,
-                  icon: const Icon(Icons.tune_rounded),
                 ),
               ],
             ),

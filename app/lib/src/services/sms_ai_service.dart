@@ -5,7 +5,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:my_app/src/services/prefs_service.dart';
 
 class SmsAiResult {
   final int prediction; // 0=safe, 1=phishing
@@ -100,42 +99,10 @@ class EmailCheckResult {
   }
 }
 
-class UrlLinksResult {
-  final List<EmailUrlPrediction> links;
-  final int overallPrediction;
-  final String overallResult;
-
-  const UrlLinksResult({
-    required this.links,
-    required this.overallPrediction,
-    required this.overallResult,
-  });
-
-  factory UrlLinksResult.fromJson(Map<String, dynamic> json) {
-    final linksJson = (json['links'] as List?) ?? const [];
-    return UrlLinksResult(
-      links: linksJson
-          .map((e) => EmailUrlPrediction.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      overallPrediction: (json['overall_prediction'] as num).toInt(),
-      overallResult: (json['overall_result'] as String?) ?? '',
-    );
-  }
-}
-
 class SmsAiService {
   /// Deployed FastAPI backend on Railway (HTTPS).
   static const String productionBaseUrl =
       'https://phishingdetector-production-7c38.up.railway.app';
-
-  static String defaultBaseUrl() {
-    return productionBaseUrl;
-  }
-
-  static Future<String> getBaseUrl() async {
-    final saved = await PrefsService.getAiBaseUrl();
-    return (saved == null || saved.trim().isEmpty) ? defaultBaseUrl() : saved;
-  }
 
   /// Human-readable + debug-console detail for http/io failures.
   static String describeNetworkError(Object e) {
@@ -173,14 +140,13 @@ class SmsAiService {
     return t.split(RegExp(r'\s+')).join(' ');
   }
 
-  /// SMS uses `/check_sms`; email body and link checks use `/check_message`
-  /// (same model and JSON body on the Railway backend).
+  /// SMS uses `/check_sms`; email body uses `/check_message` (same text model).
   static Future<SmsAiResult> _postMessage(
     String message,
     String endpointPath,
   ) async {
     final normalized = normalizeMessageForApi(message);
-    final savedBaseUrl = await getBaseUrl();
+    const savedBaseUrl = productionBaseUrl;
     const androidUsbBaseUrl = 'http://127.0.0.1:8001';
 
     // Debug-only: try adb reverse (127.0.0.1) after emulator LAN IP. Release builds
@@ -265,44 +231,6 @@ class SmsAiService {
 
   static Future<SmsAiResult> checkEmailText(String emailBody) async {
     return _postMessage(emailBody, '/check_message');
-  }
-
-  /// No `/check_urls` on the FastAPI service; classify each URL string with the
-  /// same model (it treats the URL as short text).
-  static Future<UrlLinksResult> checkUrls(List<String> urls) async {
-    if (urls.isEmpty) {
-      return const UrlLinksResult(
-        links: [],
-        overallPrediction: 0,
-        overallResult: 'Safe',
-      );
-    }
-
-    final links = <EmailUrlPrediction>[];
-    var overallPrediction = 0;
-    var overallResult = 'Safe';
-
-    for (final url in urls) {
-      final r = await _postMessage(url, '/check_message');
-      links.add(
-        EmailUrlPrediction(
-          url: url,
-          prediction: r.prediction,
-          result: r.result,
-          phishingProbability: r.phishingProbability,
-        ),
-      );
-      if (r.prediction == 1) {
-        overallPrediction = 1;
-        overallResult = 'Phishing';
-      }
-    }
-
-    return UrlLinksResult(
-      links: links,
-      overallPrediction: overallPrediction,
-      overallResult: overallResult,
-    );
   }
 }
 

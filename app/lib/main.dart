@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/pages/message_tabs_page.dart';
+import 'package:my_app/src/pages/splash_screen.dart';
 import 'package:my_app/src/services/prefs_service.dart';
 
 Future<void> main() async {
@@ -41,7 +41,7 @@ class MyApp extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         ),
       ),
-      home: const MessageTabsPage(),
+      home: const SplashScreen(),
     );
   }
 }

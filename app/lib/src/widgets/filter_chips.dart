@@ -1,69 +1,110 @@
 import 'package:flutter/material.dart';
+import 'package:my_app/src/controllers/message_reader_controller.dart';
 
+/// AI segment filters. Gmail is Inbox · unread only (no folder switcher).
 class FilterChips extends StatelessWidget {
-  final String selectedFilter;
-  final Function(String) onFilterChanged;
-  final String selectedGmailLabel;
-  final Function(String) onGmailLabelChanged;
-  final bool gmailSignedIn;
-  final bool gmailLoading;
-
   const FilterChips({
     super.key,
-    required this.selectedFilter,
-    required this.onFilterChanged,
-    required this.selectedGmailLabel,
-    required this.onGmailLabelChanged,
+    required this.mode,
+    required this.inboxSegment,
+    required this.onInboxSegmentChanged,
     this.gmailSignedIn = false,
     this.gmailLoading = false,
   });
 
+  final MessageReaderMode mode;
+  final InboxSegment inboxSegment;
+  final void Function(InboxSegment) onInboxSegmentChanged;
+  final bool gmailSignedIn;
+  final bool gmailLoading;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Filters: SMS, Gmail only
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildFilterChip(context, 'SMS', 'sms'),
-                const SizedBox(width: 8),
-                _buildFilterChip(context, 'Email', 'gmail'),
+    final cs = Theme.of(context).colorScheme;
+
+    return Material(
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.35),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (mode == MessageReaderMode.email && gmailSignedIn) ...[
+              Row(
+                children: [
+                  Icon(Icons.inbox_outlined, size: 20, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Inbox · unread messages only',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: cs.onSurface,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+            if (mode == MessageReaderMode.email && !gmailSignedIn)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'Use the mail icon above to sign in to Gmail.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                ),
+              ),
+            SegmentedButton<InboxSegment>(
+              showSelectedIcon: false,
+              style: ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: WidgetStateProperty.all(
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                ),
+              ),
+              segments: const [
+                ButtonSegment<InboxSegment>(
+                  value: InboxSegment.all,
+                  label: Text('All'),
+                  icon: Icon(Icons.list_alt_rounded, size: 18),
+                ),
+                ButtonSegment<InboxSegment>(
+                  value: InboxSegment.phishing,
+                  label: Text('Phishing'),
+                  icon: Icon(Icons.warning_amber_rounded, size: 18),
+                ),
+                ButtonSegment<InboxSegment>(
+                  value: InboxSegment.safe,
+                  label: Text('Safe'),
+                  icon: Icon(Icons.verified_user_outlined, size: 18),
+                ),
               ],
+              selected: {inboxSegment},
+              onSelectionChanged: (set) {
+                if (set.isEmpty) return;
+                final seg = set.first;
+                if (seg != inboxSegment) {
+                  onInboxSegmentChanged(seg);
+                }
+              },
             ),
-          ),
-          // Gmail: unread inbox only (no spam)
-        ],
+            if (gmailLoading)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: LinearProgressIndicator(
+                  minHeight: 2,
+                  borderRadius: BorderRadius.circular(2),
+                  color: cs.primary,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
-
-  Widget _buildFilterChip(BuildContext context, String label, String value) {
-    final isSelected = selectedFilter == value;
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) => onFilterChanged(value),
-      backgroundColor: isSelected
-          ? Theme.of(context).colorScheme.primary
-          : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-      labelStyle: TextStyle(
-        color: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurfaceVariant,
-        fontWeight: FontWeight.w600,
-        fontSize: 13,
-      ),
-      selectedColor: Theme.of(context).colorScheme.primary,
-      checkmarkColor: Theme.of(context).colorScheme.onPrimary,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      side: BorderSide(
-        color: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey.shade300,
-      ),
-    );
-  }
-
 }

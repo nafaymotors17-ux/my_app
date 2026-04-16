@@ -1,31 +1,57 @@
+import 'dart:convert';
+
+import 'package:my_app/src/models/phishing_scan_record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PrefsService {
   static SharedPreferences? _prefs;
-  /// Legacy key: older builds saved emulator/USB URLs here and they overrode Railway.
-  static const String _aiBaseUrlKeyLegacy = 'ai_base_url';
-  static const String _aiBaseUrlKey = 'ai_base_url_override';
 
-  static bool _looksLikeLocalDevUrl(String url) {
-    final lower = url.toLowerCase();
-    return lower.contains('127.0.0.1') ||
-        lower.contains('localhost') ||
-        lower.contains('10.0.2.2');
-  }
+  static const String _phishingScansKey = 'phishing_scans_v1';
+  static const String _onboardingCompletedKey = 'onboarding_completed_v1';
 
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
-    final legacy = _prefs?.getString(_aiBaseUrlKeyLegacy);
-    if (legacy != null) {
-      final trimmed = legacy.trim();
-      final current = _prefs?.getString(_aiBaseUrlKey)?.trim() ?? '';
-      if (trimmed.isNotEmpty &&
-          !_looksLikeLocalDevUrl(trimmed) &&
-          current.isEmpty) {
-        await _prefs?.setString(_aiBaseUrlKey, trimmed);
+  }
+
+  /// First-run 3-slide intro (permissions, Gmail, how scanning works).
+  static bool hasCompletedOnboarding() {
+    return _prefs?.getBool(_onboardingCompletedKey) ?? false;
+  }
+
+  static Future<void> setOnboardingCompleted([bool completed = true]) async {
+    await _prefs?.setBool(_onboardingCompletedKey, completed);
+  }
+
+  /// All persisted AI scan results keyed by message id.
+  static Map<String, PhishingScanRecord> getPhishingScans() {
+    final raw = _prefs?.getString(_phishingScansKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final out = <String, PhishingScanRecord>{};
+      for (final e in decoded.entries) {
+        final m = e.value;
+        if (m is Map<String, dynamic>) {
+          out[e.key] = PhishingScanRecord.fromJson(m);
+        }
       }
-      await _prefs?.remove(_aiBaseUrlKeyLegacy);
+      return out;
+    } catch (_) {
+      return {};
     }
+  }
+
+  static Future<void> savePhishingScans(Map<String, PhishingScanRecord> map) async {
+    final encoded = jsonEncode(
+      map.map((k, v) => MapEntry(k, v.toJson())),
+    );
+    await _prefs?.setString(_phishingScansKey, encoded);
+  }
+
+  static Future<void> removePhishingScan(String messageId) async {
+    final m = getPhishingScans();
+    m.remove(messageId);
+    await savePhishingScans(m);
   }
 
   static Set<String> getReadIds() {
@@ -47,17 +73,12 @@ class PrefsService {
   static Future<void> clearAll() async {
     await _prefs?.remove('read_ids');
     await _prefs?.remove('cleared_ids');
-    await _prefs?.remove(_aiBaseUrlKey);
-    await _prefs?.remove(_aiBaseUrlKeyLegacy);
+    await _prefs?.remove(_phishingScansKey);
+    await _prefs?.remove(_onboardingCompletedKey);
   }
 
-  static Future<String?> getAiBaseUrl() async {
-    _prefs ??= await SharedPreferences.getInstance();
-    return _prefs?.getString(_aiBaseUrlKey);
-  }
-
-  static Future<void> setAiBaseUrl(String url) async {
-    _prefs ??= await SharedPreferences.getInstance();
-    await _prefs?.setString(_aiBaseUrlKey, url);
+  /// Clears only AI phishing scan history (Threat inbox + list badges).
+  static Future<void> clearPhishingScansOnly() async {
+    await _prefs?.remove(_phishingScansKey);
   }
 }

@@ -11,21 +11,11 @@ import 'package:my_app/src/widgets/sms_ai_check_card.dart';
 /// Mirrors the Gmail-like design of [MessageDetailPage].
 class MessageDetailPanel extends StatelessWidget {
   final Message? message;
-  final bool isRead;
-  final VoidCallback? onToggleRead;
-  final VoidCallback? onClear;
-  final Future<void> Function()? onMarkAsSpam;
-  final Future<void> Function()? onTrash;
   final Future<String>? fullBodyFuture;
 
   const MessageDetailPanel({
     super.key,
     this.message,
-    required this.isRead,
-    this.onToggleRead,
-    this.onClear,
-    this.onMarkAsSpam,
-    this.onTrash,
     this.fullBodyFuture,
   });
 
@@ -77,46 +67,6 @@ class MessageDetailPanel extends StatelessWidget {
       color: Colors.white,
       child: Column(
         children: [
-          // ── Actions bar (top) ──
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-            ),
-            child: Row(
-              children: [
-                if (onToggleRead != null)
-                  IconButton(
-                    icon: Icon(
-                      isRead ? Icons.mark_email_unread_outlined : Icons.mark_email_read_outlined,
-                      size: 20,
-                    ),
-                    tooltip: isRead ? 'Mark unread' : 'Mark read',
-                    onPressed: onToggleRead,
-                  ),
-                if (isGmail && onMarkAsSpam != null)
-                  IconButton(
-                    icon: const Icon(Icons.report_gmailerrorred_outlined, size: 20),
-                    tooltip: 'Report spam',
-                    onPressed: () async => await onMarkAsSpam!(),
-                  ),
-                if (isGmail && onTrash != null)
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 20),
-                    tooltip: 'Trash',
-                    onPressed: () async => await onTrash!(),
-                  ),
-                const Spacer(),
-                if (onClear != null)
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    tooltip: 'Remove',
-                    onPressed: onClear,
-                  ),
-              ],
-            ),
-          ),
-          // ── Scrollable content ──
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
