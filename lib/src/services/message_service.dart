@@ -8,14 +8,14 @@ class MessageService {
   static Future<List<Message>> loadSmsMessages() async {
     try {
       final List<dynamic> smsMessages =
-          await PlatformService.getSmsMessagesWithReadStatus() ?? <dynamic>[];
-      return (smsMessages).map((message) {
+          await PlatformService.getSmsMessagesWithReadStatus();
+      return smsMessages.map((message) {
         final Map<dynamic, dynamic> msg = message as Map<dynamic, dynamic>;
         final int ts = msg['date'] as int? ?? 0;
         final String src = msg['source'] as String? ?? 'sms';
         final String address = msg['address'] as String? ?? 'Unknown';
         final bool smsIsRead = msg['isRead'] as bool? ?? false;
-        final String id = '${src}_${ts}_${address}';
+        final String id = '$src-$ts-$address';
         return Message(
           id: id,
           address: address,
@@ -31,38 +31,11 @@ class MessageService {
     }
   }
 
-  /// Load WhatsApp notifications
-  static Future<List<Message>> loadWhatsAppNotifications() async {
-    try {
-      final List<dynamic> whatsAppMessages =
-          await PlatformService.getWhatsAppNotifications() ?? <dynamic>[];
-      return (whatsAppMessages).map((message) {
-        final Map<dynamic, dynamic> msg = message as Map<dynamic, dynamic>;
-        final int ts = msg['date'] as int? ?? 0;
-        final String src = msg['source'] as String? ?? 'whatsapp';
-        final String address = msg['address'] as String? ?? 'Unknown';
-        final String id = '${src}_${ts}_${address}';
-        return Message(
-          id: id,
-          address: address,
-          body: msg['body'] as String? ?? 'No content',
-          date: DateTime.fromMillisecondsSinceEpoch(ts),
-          source: src,
-          isRead: false,
-        );
-      }).toList();
-    } on PlatformException catch (e) {
-      print('Error loading WhatsApp notifications: ${e.message}');
-      return <Message>[];
-    }
-  }
-
-  /// Load all messages (SMS + WhatsApp)
+  /// Load all messages (SMS only - Gmail loaded separately by controller)
   static Future<List<Message>> loadAllMessages() async {
     final smsList = await loadSmsMessages();
-    final whatsappList = await loadWhatsAppNotifications();
 
-    final combined = [...smsList, ...whatsappList];
+    final combined = [...smsList];
     combined.sort((a, b) => b.date.compareTo(a.date));
 
     return combined;

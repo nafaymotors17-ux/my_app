@@ -3,41 +3,91 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:my_app/src/controllers/message_reader_controller.dart';
+import 'package:my_app/src/services/gmail_service.dart';
+import 'package:my_app/src/models/batch_scan_result.dart';
 import 'package:my_app/src/models/message.dart';
+import 'package:my_app/src/pages/batch_scan_results_page.dart';
 import 'package:my_app/src/utils/responsive.dart';
-import 'package:my_app/src/widgets/background_service_button.dart';
 import 'package:my_app/src/widgets/empty_state_widget.dart';
 import 'package:my_app/src/widgets/filter_chips.dart';
+import 'package:my_app/src/widgets/gmail_pagination_bar.dart';
 import 'package:my_app/src/widgets/gmail_status_button.dart';
 import 'package:my_app/src/widgets/message_card.dart';
-import 'package:my_app/src/widgets/message_detail_dialog.dart';
+import 'package:my_app/src/pages/message_detail_page.dart';
 import 'package:my_app/src/widgets/message_detail_panel.dart';
-import 'package:my_app/src/widgets/notification_listener_dialogs.dart';
-import 'package:my_app/src/widgets/notification_status_button.dart';
+import 'package:my_app/src/widgets/quick_scan_sheet.dart';
+import 'package:my_app/src/services/sms_ai_service.dart';
 
 class MessageReaderPage extends StatefulWidget {
-  const MessageReaderPage({super.key, required this.title});
+  const MessageReaderPage({
+    super.key,
+    required this.title,
+    required this.mode,
+    this.autoLoad = true,
+    this.isActive = true,
+    this.showAppBar = true,
+    this.onToolbarChanged,
+  });
 
   final String title;
+  final MessageReaderMode mode;
+  final bool autoLoad;
+
+  /// When false, [init] is deferred until this becomes true (e.g. hidden [IndexedStack] tab).
+  final bool isActive;
+  final bool showAppBar;
+
+  /// When [showAppBar] is false, the parent owns the app bar — call this after
+  /// state that affects toolbar actions (selection, AI scan progress, etc.).
+  final VoidCallback? onToolbarChanged;
 
   @override
-  State<MessageReaderPage> createState() => _MessageReaderPageState();
+  State<MessageReaderPage> createState() => MessageReaderPageState();
 }
 
-class _MessageReaderPageState extends State<MessageReaderPage> {
+class MessageReaderPageState extends State<MessageReaderPage> {
   late MessageReaderController _controller;
   Message? _selectedMessage; // For master-detail layout on wide screens
+  final ScrollController _scrollController = ScrollController();
+  final Set<String> _checkingAiIds = <String>{};
+  bool _selectionMode = false;
+  final Set<String> _batchSelectedIds = <String>{};
+  bool _batchScanning = false;
+  bool _didInit = false;
+
+  MessageReaderController get readerController => _controller;
+
+  void _notifyToolbar() => widget.onToolbarChanged?.call();
+
+  /// Call when phishing store may have changed (e.g. after Threats tab dismiss).
+  Future<void> reloadPhishingFromPrefs() => _controller.reloadPhishingScans();
 
   @override
   void initState() {
     super.initState();
-    _controller = MessageReaderController();
+    _controller = MessageReaderController(mode: widget.mode);
     _controller.addListener(_onControllerUpdate);
+    _maybeInit();
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageReaderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_didInit && widget.autoLoad) {
+      _maybeInit();
+    }
+  }
+
+  void _maybeInit() {
+    if (_didInit || !widget.autoLoad) return;
+    if (!widget.isActive) return;
+    _didInit = true;
     _controller.init();
   }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _controller.removeListener(_onControllerUpdate);
     _controller.dispose();
     super.dispose();
@@ -48,91 +98,97 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
       setState(() {
         // Clear selection if the message was cleared
         if (_selectedMessage != null &&
-            !_controller.displayedMessages.any(
-              (m) => m.id == _selectedMessage!.id,
-            )) {
+            !_controller.displayedMessages.any((m) => m.id == _selectedMessage!.id)) {
           _selectedMessage = null;
         }
+        final ids = _controller.displayedMessages.map((m) => m.id).toSet();
+        _batchSelectedIds.removeWhere((id) => !ids.contains(id));
       });
+      _notifyToolbar();
     }
   }
 
-  Future<void> _handleStartBackgroundService() async {
-    try {
-      await _controller.startBackgroundService();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✓ Background SMS listener started'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error starting service: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _batchSelectedIds.clear();
+    });
+    _notifyToolbar();
   }
 
-  Future<void> _handleStopBackgroundService() async {
-    try {
-      await _controller.stopBackgroundService();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✓ Background SMS listener stopped'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error stopping service: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+  void _enterSelectionMode() {
+    setState(() {
+      _selectionMode = true;
+      _batchSelectedIds.clear();
+      _selectedMessage = null;
+    });
+    _notifyToolbar();
   }
 
-  Future<void> _handleEnableNotificationListener() async {
-    try {
-      await _controller.enableNotificationListener();
-      if (mounted) {
-        NotificationListenerDialogs.showEnableDialog(context);
+  void _selectAllVisible() {
+    setState(() {
+      for (final m in _controller.visibleMessages) {
+        _batchSelectedIds.add(m.id);
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
-    }
+    });
+    _notifyToolbar();
   }
 
-  Future<void> _handleTestNotificationListener() async {
-    try {
-      final testResult = await _controller.testNotificationListener();
-      if (mounted && testResult != null) {
-        NotificationListenerDialogs.showTestDialog(context, testResult);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error testing: $e')));
+  Future<void> _runBatchScan() async {
+    final msgs = _controller.visibleMessages
+        .where((m) => _batchSelectedIds.contains(m.id))
+        .toList();
+    if (msgs.isEmpty) return;
+
+    setState(() => _batchScanning = true);
+    _notifyToolbar();
+
+    final results = <BatchScanResultItem>[];
+    for (final msg in msgs) {
+      if (!mounted) return;
+      try {
+        late final SmsAiResult result;
+        if (msg.source == 'sms') {
+          result = await SmsAiService.checkSms(msg.body);
+        } else {
+          if (!_controller.gmailSignedIn) {
+            results.add(
+              BatchScanResultItem.failure(msg, 'Sign in to Gmail to scan email'),
+            );
+            continue;
+          }
+          final gmailId = msg.id.replaceFirst('gmail_', '');
+          final fullBody = await GmailService.getEmailBodyForDisplay(gmailId);
+          final bodyToSend =
+              (fullBody != null && fullBody.trim().isNotEmpty) ? fullBody : msg.body;
+          result = await SmsAiService.checkEmailText(bodyToSend);
+        }
+        await _controller.recordPhishingScan(msg, result);
+        results.add(BatchScanResultItem.success(msg, result));
+      } catch (e) {
+        results.add(
+          BatchScanResultItem.failure(msg, SmsAiService.describeNetworkError(e)),
+        );
       }
     }
+
+    if (!mounted) return;
+    final completedAt = DateTime.now();
+    setState(() {
+      _batchScanning = false;
+      _selectionMode = false;
+      _batchSelectedIds.clear();
+    });
+    _notifyToolbar();
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => BatchScanResultsPage(
+          items: results,
+          completedAt: completedAt,
+        ),
+      ),
+    );
   }
 
   Future<void> _handleLoadMessages() async {
@@ -142,6 +198,24 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading messages: ${e.message}')),
+        );
+      }
+    }
+  }
+
+  /// Refresh: Gmail path when signed in on Email tab, else full reload.
+  Future<void> _handleRefreshMessages() async {
+    try {
+      if (widget.mode == MessageReaderMode.email &&
+          _controller.gmailSignedIn) {
+        await _controller.loadGmailWhenFilterIsGmail();
+      } else {
+        await _controller.loadAllMessages();
+      }
+    } on PlatformException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Refresh failed: ${e.message}')),
         );
       }
     }
@@ -161,378 +235,686 @@ class _MessageReaderPageState extends State<MessageReaderPage> {
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Sign Out'),
             ),
           ],
         ),
       );
       if (shouldSignOut == true) {
-        await _controller.signOutFromGmail();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Signed out from Gmail'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
+        await _handleGmailSignOut();
       }
     } else {
       await _handleGmailSignIn();
     }
   }
 
+  Future<void> _handleGmailSignOut() async {
+    await _controller.signOutFromGmail();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Signed out from Gmail'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
   Future<void> _handleGmailSignIn() async {
     try {
       setState(() {});
-      await _controller.signInToGmail().timeout(
-        const Duration(seconds: 60),
-        onTimeout: () {
-          throw TimeoutException('Sign-in timed out');
-        },
-      );
-      if (mounted && _controller.gmailSignedIn) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✓ Signed in as ${_controller.gmailUserEmail}'),
-            backgroundColor: Colors.green,
+      
+      // Show progress dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Signing in...'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                const Text('Opening Google account picker...'),
+              ],
+            ),
           ),
         );
+      }
+      
+      await _controller.signInToGmail().timeout(
+        const Duration(seconds: 120), // Increased timeout to 2 minutes
+        onTimeout: () {
+          throw TimeoutException(
+            'Sign-in timed out. Check your internet connection and try again.',
+          );
+        },
+      );
+      
+      if (mounted) {
+        Navigator.pop(context); // Close progress dialog
+        
+        if (_controller.gmailSignedIn) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✓ Signed in as ${_controller.gmailUserEmail}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
+        Navigator.pop(context); // Close progress dialog
+        
+        String errorMessage = 'Sign-in failed';
+        if (e is TimeoutException) {
+          errorMessage = e.message ?? errorMessage;
+        } else if (e.toString().contains('PlatformException')) {
+          errorMessage = 'Could not connect to Google. Check:\n• Internet connection\n• Web Client ID is set correctly\n• Google Play Services is installed';
+        } else {
+          errorMessage = 'Error: $e';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gmail sign-in failed: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
     }
   }
 
-  Future<void> _handleFilterChanged(String filter) async {
-    if (filter == 'gmail' && !_controller.gmailSignedIn) {
-      final result = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Gmail Sign-In Required'),
-          content: const Text(
-            'Sign in with your Google account to view Gmail emails',
+  Future<void> _checkMessageWithAi(Message msg) async {
+    if (_checkingAiIds.contains(msg.id)) return;
+    setState(() => _checkingAiIds.add(msg.id));
+    _notifyToolbar();
+    try {
+      late final SmsAiResult result;
+      if (msg.source == 'sms') {
+        result = await SmsAiService.checkSms(msg.body);
+        if (!mounted) return;
+        await _controller.recordPhishingScan(msg, result);
+        if (!mounted) return;
+        final pct = result.prediction == 1 &&
+                result.phishingProbability != null
+            ? ' · ${result.phishingPercentLabel} confidence'
+            : '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.prediction == 1
+                  ? 'Phishing risk: SMS flagged$pct'
+                  : 'SMS looks safe',
+            ),
+            backgroundColor:
+                result.prediction == 1 ? Colors.red : Colors.green,
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
+        );
+      } else if (msg.source == 'gmail') {
+        if (!_controller.gmailSignedIn) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sign in to Gmail first'),
+              backgroundColor: Colors.red,
             ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Sign In'),
-            ),
-          ],
-        ),
-      );
-
-      if (result == true) {
-        await _handleGmailSignIn();
-        if (_controller.gmailSignedIn) {
-          _controller.setFilter(filter);
+          );
+          return;
         }
+
+        final gmailId = msg.id.replaceFirst('gmail_', '');
+        final fullBody = await GmailService.getEmailBodyForDisplay(gmailId);
+        final bodyToSend = (fullBody != null && fullBody.trim().isNotEmpty)
+            ? fullBody
+            : msg.body;
+
+        result = await SmsAiService.checkEmailText(bodyToSend);
+        if (!mounted) return;
+        await _controller.recordPhishingScan(msg, result);
+        if (!mounted) return;
+
+        final pctMail = result.prediction == 1 &&
+                result.phishingProbability != null
+            ? ' · ${result.phishingPercentLabel} confidence'
+            : '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.prediction == 1
+                  ? 'Phishing risk: email flagged$pctMail'
+                  : 'Email looks safe',
+            ),
+            backgroundColor: result.prediction == 1 ? Colors.red : Colors.green,
+          ),
+        );
       }
-    } else {
-      _controller.setFilter(filter);
-    }
-  }
-
-  Future<void> _handleClearAll() async {
-    final confirm = await NotificationListenerDialogs.showClearAllDialog(
-      context,
-    );
-    if (confirm == true) {
-      await _controller.clearAll();
-      setState(() => _selectedMessage = null);
-    }
-  }
-
-  Future<void> _handleClearMessage(Message msg) async {
-    final res = await NotificationListenerDialogs.showClearMessageDialog(
-      context,
-    );
-    if (res == true) {
-      _controller.clearMessage(msg);
-      if (_selectedMessage?.id == msg.id) {
-        setState(() => _selectedMessage = null);
-      }
-    }
-  }
-
-  void _showMessageDetail(Message msg) {
-    if (ResponsiveBreakpoints.isWideScreen(context)) {
-      setState(() => _selectedMessage = msg);
-    } else {
-      showDialog(
-        context: context,
-        builder: (context) => MessageDetailDialog(
-          msg: msg,
-          isRead: _controller.isMessageRead(msg),
-          onToggleRead: () => _controller.toggleRead(msg),
-          onClear: () => _controller.clearMessage(msg),
+    } catch (e, st) {
+      debugPrint('Check AI failed: $e');
+      debugPrint('$st');
+      if (!mounted) return;
+      final friendly = SmsAiService.describeNetworkError(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'AI check failed: $friendly',
+            maxLines: 4,
+          ),
+          backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _checkingAiIds.remove(msg.id));
+        _notifyToolbar();
+      }
     }
   }
 
-  Widget _buildMessageList() {
-    if (_controller.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_controller.displayedMessages.isEmpty) {
-      return EmptyStateWidget(
-        selectedFilter: _controller.selectedFilter,
-        onLoadMessages: _handleLoadMessages,
-      );
-    }
-    return ListView.builder(
-      padding: EdgeInsets.only(
-        left: ResponsiveBreakpoints.isMediumOrWider(context) ? 12 : 8,
-        right: ResponsiveBreakpoints.isMediumOrWider(context) ? 12 : 8,
-        bottom: 16,
-      ),
-      itemCount: _controller.displayedMessages.length,
-      itemBuilder: (context, index) {
-        final Message msg = _controller.displayedMessages[index];
-        final bool isMessageRead = _controller.isMessageRead(msg);
-        final bool isSelected = _selectedMessage?.id == msg.id;
-
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: MessageCard(
-            msg: msg,
-            isRead: isMessageRead,
-            isSelected: isSelected,
-            onTap: () => _showMessageDetail(msg),
-            onDelete: () => _handleClearMessage(msg),
-            onToggleRead: () => _controller.toggleRead(msg),
-          ),
+  Widget _buildFilterChips() {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        return FilterChips(
+          mode: widget.mode,
+          inboxSegment: _controller.inboxSegment,
+          onInboxSegmentChanged: (s) {
+            _controller.setInboxSegment(s);
+            _notifyToolbar();
+          },
+          gmailSignedIn: _controller.gmailSignedIn,
+          gmailLoading: _controller.gmailLoading,
         );
       },
     );
   }
 
+  void _onMessageTap(Message msg) {
+    if (_selectionMode) {
+      setState(() {
+        if (_batchSelectedIds.contains(msg.id)) {
+          _batchSelectedIds.remove(msg.id);
+        } else {
+          _batchSelectedIds.add(msg.id);
+        }
+      });
+      _notifyToolbar();
+      return;
+    }
+    _showMessageDetail(msg);
+  }
+
+  void _onMessageLongPress(Message msg) {
+    if (_selectionMode) return;
+    setState(() {
+      _selectionMode = true;
+      _batchSelectedIds.add(msg.id);
+      _selectedMessage = null;
+    });
+    _notifyToolbar();
+  }
+
+  void _showMessageDetail(Message msg) {
+    setState(() => _selectedMessage = msg);
+    _notifyToolbar();
+    if (ResponsiveBreakpoints.isWideScreen(context)) {
+      return;
+    }
+    // Phone: full-screen detail; keep selection so scan/read stay in the app bar when you return.
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MessageDetailPage(
+          message: msg,
+          initialIsRead: _controller.isMessageRead(msg),
+          onToggleRead: () => _controller.toggleRead(msg),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageList() {
+    final isGmailFilter = _controller.selectedFilter == 'gmail';
+    final showGmailLoading = isGmailFilter && _controller.gmailLoading;
+
+    if (_controller.isLoading && _controller.displayedMessages.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Loading…',
+              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            ),
+          ],
+        ),
+      );
+    }
+    // Gmail tab loading (switching Inbox/Sent/Spam)
+    if (showGmailLoading) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Loading emails…',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_controller.displayedMessages.isEmpty) {
+      return EmptyStateWidget(
+        selectedFilter: _controller.selectedFilter,
+        inboxSegment: _controller.inboxSegment,
+      );
+    }
+
+    final visible = _controller.visibleMessages;
+    final total = _controller.displayedMessages.length;
+
+    if (visible.isEmpty && total > 0) {
+      return EmptyStateWidget(
+        selectedFilter: _controller.selectedFilter,
+        inboxSegment: _controller.inboxSegment,
+      );
+    }
+
+    return Column(
+      children: [
+        if (isGmailFilter && _controller.gmailSignedIn && total > 0)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: GmailPaginationBar(controller: _controller),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              if (isGmailFilter) {
+                await _controller.loadGmailWhenFilterIsGmail();
+              } else {
+                await _handleLoadMessages();
+              }
+            },
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: EdgeInsets.only(
+                left: ResponsiveBreakpoints.isMediumOrWider(context) ? 16 : 12,
+                right: ResponsiveBreakpoints.isMediumOrWider(context) ? 16 : 12,
+                top: 8,
+                bottom: 24,
+              ),
+              itemCount: visible.length,
+              itemBuilder: (context, index) {
+                final Message msg = visible[index];
+                final bool isMessageRead = _controller.isMessageRead(msg);
+                final bool isSelected = _selectedMessage?.id == msg.id;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: MessageCard(
+                    msg: msg,
+                    index: isGmailFilter ? index + 1 : null,
+                    isRead: isMessageRead,
+                    isSelected: isSelected,
+                    selectionMode: _selectionMode,
+                    isChecked: _batchSelectedIds.contains(msg.id),
+                    aiScan: _controller.scanFor(msg.id),
+                    onTap: () => _onMessageTap(msg),
+                    onLongPress: () => _onMessageLongPress(msg),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Toolbar actions for this page (used by [MessageReaderPage] or a parent shell).
+  List<Widget> buildAppBarActions(BuildContext context) {
+    final isNarrow = !ResponsiveBreakpoints.isMediumOrWider(context);
+    final cs = Theme.of(context).colorScheme;
+    if (_selectionMode) {
+      return [
+        TextButton(
+          onPressed: _batchScanning ? null : _selectAllVisible,
+          child: const Text('Select all'),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, right: 8),
+          child: FilledButton.icon(
+            onPressed: _batchScanning || _batchSelectedIds.isEmpty
+                ? null
+                : _runBatchScan,
+            icon: _batchScanning
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.shield_rounded, size: 20),
+            label: Text(
+              _batchScanning
+                  ? 'Scanning…'
+                  : 'Scan (${_batchSelectedIds.length})',
+            ),
+          ),
+        ),
+      ];
+    }
+    return [
+      IconButton(
+        tooltip: 'Quick scan — paste text without picking a message',
+        onPressed: () => QuickScanSheet.show(
+          context,
+          initialMode: widget.mode,
+        ),
+        icon: Icon(
+          Icons.bolt_rounded,
+          color: cs.primary,
+        ),
+      ),
+      IconButton(
+        tooltip: 'Select messages — batch scan',
+        onPressed: _enterSelectionMode,
+        icon: Icon(Icons.checklist_rounded, color: cs.primary),
+      ),
+      // Scan / read for the selected row (same app bar on phone after you open a message once).
+      if (_selectedMessage != null) ...[
+        Builder(
+          builder: (context) {
+            final sel = _selectedMessage!;
+            final checking = _checkingAiIds.contains(sel.id);
+            final needGmail = sel.source == 'gmail';
+            final canScan = !needGmail || _controller.gmailSignedIn;
+            final cs = Theme.of(context).colorScheme;
+            return IconButton(
+              tooltip: needGmail ? 'Scan email' : 'Scan SMS',
+              onPressed: !canScan || checking
+                  ? null
+                  : () => _checkMessageWithAi(sel),
+              icon: checking
+                  ? SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.primary,
+                      ),
+                    )
+                  : Icon(
+                      Icons.shield_rounded,
+                      color: canScan ? cs.primary : cs.outline,
+                    ),
+            );
+          },
+        ),
+        Builder(
+          builder: (context) {
+            final sel = _selectedMessage!;
+            final read = _controller.isMessageRead(sel);
+            final cs = Theme.of(context).colorScheme;
+            return IconButton(
+              tooltip: read ? 'Mark unread' : 'Mark read',
+              icon: Icon(
+                read
+                    ? Icons.mark_email_unread_outlined
+                    : Icons.mark_email_read_outlined,
+                color: read ? cs.outline : cs.primary,
+              ),
+              onPressed: () => _controller.toggleRead(sel),
+            );
+          },
+        ),
+      ],
+      // Phones: mail icon is always visible on Email tab (Gmail is also in ⋮).
+      if (isNarrow && widget.mode == MessageReaderMode.email) ...[
+        IconButton(
+          icon: Icon(
+            _controller.gmailSignedIn ? Icons.mail_rounded : Icons.mail_outlined,
+            color: _controller.gmailSignedIn
+                ? Theme.of(context).colorScheme.primary
+                : null,
+          ),
+          tooltip: _controller.gmailSignedIn
+              ? 'Gmail: ${_controller.gmailUserEmail ?? 'signed in'}'
+              : 'Sign in to Gmail',
+          onPressed: _handleGmailTap,
+        ),
+      ],
+      if (isNarrow) ...[
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Refresh',
+          onPressed: _handleRefreshMessages,
+        ),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: 'More options',
+          onSelected: (value) {
+            switch (value) {
+              case 'gmail_signin':
+                _handleGmailSignIn();
+                break;
+              case 'gmail_signout':
+                _handleGmailSignOut();
+                break;
+              case 'refresh':
+                _handleRefreshMessages();
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            if (widget.mode == MessageReaderMode.email) ...[
+              if (_controller.gmailSignedIn) ...[
+                PopupMenuItem(
+                  enabled: false,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.mail, color: Colors.red),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _controller.gmailUserEmail ?? 'Gmail',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.grey[800],
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'gmail_signout',
+                  child: Row(
+                    children: [
+                      Icon(Icons.logout, color: Colors.red),
+                      SizedBox(width: 12),
+                      Text(
+                        'Sign out of Gmail',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else
+                const PopupMenuItem(
+                  value: 'gmail_signin',
+                  child: Row(
+                    children: [
+                      Icon(Icons.mail_outline, color: Colors.grey),
+                      SizedBox(width: 12),
+                      Text('Sign in to Gmail'),
+                    ],
+                  ),
+                ),
+              const PopupMenuDivider(),
+            ],
+            const PopupMenuItem(
+              value: 'refresh',
+              child: Row(
+                children: [
+                  Icon(Icons.refresh),
+                  SizedBox(width: 12),
+                  Text('Refresh messages'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ] else ...[
+        if (widget.mode == MessageReaderMode.email)
+          GmailStatusButton(
+            isSignedIn: _controller.gmailSignedIn,
+            userEmail: _controller.gmailUserEmail,
+            onTap: _handleGmailTap,
+          ),
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Refresh messages',
+          onPressed: _handleRefreshMessages,
+        ),
+      ],
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final isWide = ResponsiveBreakpoints.isWideScreen(context);
-    final isNarrow = !ResponsiveBreakpoints.isMediumOrWider(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title, overflow: TextOverflow.ellipsis),
-        elevation: 0,
-        actions: [
-          // On narrow screens, show icons only; on wider, show full buttons
-          if (isNarrow) ...[
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Refresh',
-              onPressed: _handleLoadMessages,
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_forever),
-              tooltip: 'Clear all',
-              onPressed: _handleClearAll,
-            ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              tooltip: 'Status & options',
-              onSelected: (value) {
-                switch (value) {
-                  case 'notifications':
-                    _controller.notificationListenerEnabled
-                        ? _handleTestNotificationListener()
-                        : _handleEnableNotificationListener();
-                    break;
-                  case 'background':
-                    _controller.backgroundServiceRunning
-                        ? _handleStopBackgroundService()
-                        : _handleStartBackgroundService();
-                    break;
-                  case 'gmail':
-                    _handleGmailTap();
-                    break;
-                  case 'refresh':
-                    _handleLoadMessages();
-                    break;
-                  case 'clear':
-                    _handleClearAll();
-                    break;
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'notifications',
-                  child: Row(
+    final Widget content = SafeArea(
+      child: isWide
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Master: message list
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(
-                        _controller.notificationListenerEnabled
-                            ? Icons.check_circle
-                            : Icons.notifications,
-                        color: _controller.notificationListenerEnabled
-                            ? Colors.green
-                            : Colors.orange,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        _controller.notificationListenerEnabled
-                            ? 'Notifications: Active'
-                            : 'Enable Notifications',
-                      ),
+                      _buildFilterChips(),
+                      Expanded(child: _buildMessageList()),
                     ],
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'background',
-                  child: Row(
-                    children: [
-                      Icon(
-                        _controller.backgroundServiceRunning
-                            ? Icons.cloud_done
-                            : Icons.cloud_off,
-                        color: _controller.backgroundServiceRunning
-                            ? Colors.blue
-                            : Colors.grey,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        _controller.backgroundServiceRunning
-                            ? 'Background: Running'
-                            : 'Start Background Service',
-                      ),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'gmail',
-                  child: Row(
-                    children: [
-                      Icon(
-                        _controller.gmailSignedIn
-                            ? Icons.mail
-                            : Icons.mail_outline,
-                        color: _controller.gmailSignedIn
-                            ? Colors.red
-                            : Colors.grey,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        _controller.gmailSignedIn
-                            ? 'Gmail: ${_controller.gmailUserEmail}'
-                            : 'Sign in to Gmail',
-                      ),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'refresh',
-                  child: Row(
-                    children: [
-                      Icon(Icons.refresh),
-                      SizedBox(width: 12),
-                      Text('Refresh messages'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'clear',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_forever),
-                      SizedBox(width: 12),
-                      Text('Clear all'),
-                    ],
+                // Detail panel
+                SizedBox(
+                  width: (MediaQuery.sizeOf(context).width * 0.4).clamp(320.0, 500.0),
+                  child: MessageDetailPanel(
+                    message: _selectedMessage,
+                    fullBodyFuture: _selectedMessage != null &&
+                            _selectedMessage!.source == 'gmail'
+                        ? GmailService.getEmailBodyForDisplay(
+                            _selectedMessage!.id.replaceFirst('gmail_', ''),
+                          ).then((body) => body ?? _selectedMessage!.body)
+                        : null,
                   ),
                 ),
               ],
+            )
+          : Column(
+              children: [
+                _buildFilterChips(),
+                Expanded(child: _buildMessageList()),
+              ],
             ),
-          ] else ...[
-            NotificationStatusButton(
-              isEnabled: _controller.notificationListenerEnabled,
-              onTap: _controller.notificationListenerEnabled
-                  ? _handleTestNotificationListener
-                  : _handleEnableNotificationListener,
-            ),
-            BackgroundServiceButton(
-              isRunning: _controller.backgroundServiceRunning,
-              onTap: _controller.backgroundServiceRunning
-                  ? _handleStopBackgroundService
-                  : _handleStartBackgroundService,
-            ),
-            GmailStatusButton(
-              isSignedIn: _controller.gmailSignedIn,
-              userEmail: _controller.gmailUserEmail,
-              onTap: _handleGmailTap,
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_forever),
-              tooltip: 'Clear all (WhatsApp storage + local state)',
-              onPressed: _handleClearAll,
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Refresh messages',
-              onPressed: _handleLoadMessages,
-            ),
-          ],
-        ],
-      ),
-      body: SafeArea(
-        child: isWide
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Master: message list
-                  Expanded(
-                    flex: 1,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        FilterChips(
-                          selectedFilter: _controller.selectedFilter,
-                          onFilterChanged: _handleFilterChanged,
-                        ),
-                        Expanded(child: _buildMessageList()),
-                      ],
-                    ),
-                  ),
-                  // Detail panel
-                  SizedBox(
-                    width: MediaQuery.sizeOf(context).width * 0.4,
-                    constraints: const BoxConstraints(minWidth: 320),
-                    child: MessageDetailPanel(
-                      message: _selectedMessage,
-                      isRead: _selectedMessage != null
-                          ? _controller.isMessageRead(_selectedMessage!)
-                          : false,
-                      onToggleRead: _selectedMessage != null
-                          ? () => _controller.toggleRead(_selectedMessage!)
-                          : null,
-                      onClear: _selectedMessage != null
-                          ? () => _handleClearMessage(_selectedMessage!)
-                          : null,
-                    ),
-                  ),
-                ],
+    );
+
+    if (!widget.showAppBar) return content;
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: _selectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _batchScanning ? null : _exitSelectionMode,
               )
-            : Column(
-                children: [
-                  FilterChips(
-                    selectedFilter: _controller.selectedFilter,
-                    onFilterChanged: _handleFilterChanged,
+            : null,
+        automaticallyImplyLeading: !_selectionMode,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
+        title: Text(
+          _selectionMode
+              ? 'Select messages (${_batchSelectedIds.length})'
+              : widget.title,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
+        elevation: 0,
+        scrolledUnderElevation: 1,
+        surfaceTintColor: Colors.transparent,
+        actions: buildAppBarActions(context),
+      ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          content,
+          if (_batchScanning)
+            ModalBarrier(
+              color: Colors.black.withValues(alpha: 0.35),
+              dismissible: false,
+            ),
+          if (_batchScanning)
+            Center(
+              child: Card(
+                margin: const EdgeInsets.all(32),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Scanning ${_batchSelectedIds.length} messages…',
+                        style: Theme.of(context).textTheme.titleSmall,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
-                  Expanded(child: _buildMessageList()),
-                ],
+                ),
               ),
+            ),
+        ],
       ),
     );
   }

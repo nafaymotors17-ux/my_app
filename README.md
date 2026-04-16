@@ -10,23 +10,8 @@ A few resources to get you started if this is your first Flutter project:
 
 - [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
 - [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- Flutter learning resources
 - [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
 
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
-
-## FastAPI Backend (Reconnect)
-
-When the app shows “backend disconnected”, run this script from the project root:
-
-```powershell
-.\connect-backend.ps1
-```
-
-It will:
-- restart `adb` server
-- run `adb reverse tcp:8000 tcp:8000`
-- show `adb reverse --list`
-- check `http://127.0.0.1:8000/`

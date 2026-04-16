@@ -3,23 +3,35 @@ import 'package:my_app/src/services/gmail_auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
+// --- Gmail API behavior (why we fetch per-message) ---
+// • messages.list returns only message IDs (and thread IDs), not subject/from/body.
+//   It supports pagination: maxResults (1–500) and pageToken. We use this for "page size".
+// • There is no API that returns "N full messages in one response". To get content you must
+//   call messages.get per message. We do those in parallel (Future.wait) to avoid sequential
+//   round-trips. Optional: Google supports batch HTTP (multipart) for up to 100 calls per
+//   request if we need to reduce latency further.
+
 class Email {
   final String id;
   final String subject;
   final String from;
+  final String to;
   final String snippet;
   final String body;
   final DateTime date;
   final bool isPhishing;
+  final String labelId; // INBOX, SENT, SPAM, etc.
 
   Email({
     required this.id,
     required this.subject,
     required this.from,
+    this.to = '',
     required this.snippet,
     required this.body,
     required this.date,
-    required this.isPhishing,
+    this.isPhishing = false,
+    this.labelId = 'INBOX',
   });
 
   Map<String, dynamic> toMap() {
@@ -27,10 +39,12 @@ class Email {
       'id': id,
       'subject': subject,
       'from': from,
+      'to': to,
       'snippet': snippet,
       'body': body,
       'date': date.millisecondsSinceEpoch,
       'isPhishing': isPhishing,
+      'labelId': labelId,
     };
   }
 
@@ -39,69 +53,159 @@ class Email {
       id: map['id'] ?? '',
       subject: map['subject'] ?? '',
       from: map['from'] ?? '',
+      to: map['to'] ?? '',
       snippet: map['snippet'] ?? '',
       body: map['body'] ?? '',
       date: DateTime.fromMillisecondsSinceEpoch(map['date'] ?? 0),
       isPhishing: map['isPhishing'] ?? false,
+      labelId: map['labelId'] ?? 'INBOX',
     );
   }
+}
+
+/// Gmail label IDs (standard Gmail labels)
+class GmailLabels {
+  static const String inbox = 'INBOX';
+  static const String sent = 'SENT';
+  static const String spam = 'SPAM';
+  static const String trash = 'TRASH';
+}
+
+/// Result of a paginated Gmail fetch
+class GmailFetchResult {
+  final List<Email> emails;
+  final String? nextPageToken;
+  final int resultSizeEstimate;
+
+  const GmailFetchResult({
+    required this.emails,
+    this.nextPageToken,
+    this.resultSizeEstimate = 0,
+  });
 }
 
 class GmailService {
   static const String _storageKey = 'gmail_emails';
   static const String _lastSyncKey = 'gmail_last_sync';
+  /// Page size for list; Gmail API allows up to 500. We fetch this many IDs per page, then get each in parallel.
+  static const int defaultPageSize = 50;
 
-  /// Fetch emails from Gmail
-  static Future<List<Email>> fetchEmails({int maxResults = 20}) async {
+  /// Inbox = unread only. Spam = all spam (no unread filter - spam is inherently "unread" to check).
+  static bool _unreadOnlyForLabel(String labelId) {
+    return labelId == GmailLabels.inbox;
+  }
+
+  /// Fetch emails by label with pagination. Unread only for Inbox and Spam.
+  /// Uses metadata format for faster loading (snippet as preview, no full body).
+  static Future<GmailFetchResult> fetchEmailsByLabelPage({
+    required String labelId,
+    String? pageToken,
+    int maxResults = defaultPageSize,
+    bool unreadOnly = true,
+  }) async {
     try {
       final gmailApi = await GmailAuthService.getGmailService();
       if (gmailApi == null) {
-        print('Gmail service not available');
-        return [];
+        return const GmailFetchResult(emails: []);
       }
 
-      final messages = await gmailApi.users.messages.list(
+      final useUnread = unreadOnly && _unreadOnlyForLabel(labelId);
+      final q = useUnread ? 'is:unread' : null;
+
+      final listResponse = await gmailApi.users.messages.list(
         'me',
-        q: 'is:unread',
+        labelIds: [labelId],
+        q: q,
         maxResults: maxResults,
-        pageToken: null,
+        pageToken: pageToken,
       );
 
-      List<Email> emails = [];
-
-      if (messages.messages != null && messages.messages!.isNotEmpty) {
-        for (var message in messages.messages!) {
-          try {
-            final fullMessage = await gmailApi.users.messages.get(
-              'me',
-              message.id!,
-              format: 'full',
-            );
-
-            final email = _parseGmailMessage(fullMessage);
-            emails.add(email);
-          } catch (e) {
-            print('Error fetching full message: $e');
-          }
+      final messages = listResponse.messages ?? [];
+      // Fetch all messages in parallel (was sequential = 30x slower)
+      final futures = messages.map((msgRef) async {
+        try {
+          final msg = await gmailApi.users.messages.get(
+            'me',
+            msgRef.id!,
+            format: 'metadata',
+          );
+          return _parseGmailMessage(msg, labelId: labelId);
+        } catch (e) {
+          return null;
         }
-      }
+      });
+      final results = await Future.wait(futures);
+      final emails = results.whereType<Email>().toList();
 
-      // Save to local storage
-      await _saveEmails(emails);
-      await _updateLastSync();
-
-      return emails;
-    } catch (e) {
+      return GmailFetchResult(
+        emails: emails,
+        nextPageToken: listResponse.nextPageToken,
+        resultSizeEstimate: listResponse.resultSizeEstimate ?? 0,
+      );
+    } catch (e, stackTrace) {
       print('Error fetching emails: $e');
-      // Return cached emails if fetch fails
-      return await _loadEmails();
+      print('Stack trace: $stackTrace');
+      return const GmailFetchResult(emails: []);
     }
   }
 
-  /// Fetch all emails (paginated)
-  /// [maxTotalResults] limits the total number of emails to fetch (null = no limit)
+  /// Fetch all emails for a label at once (multiple pages until done or cap).
+  /// Use for "load all then paginate on frontend". [maxTotalResults] caps total (default 500).
+  static Future<List<Email>> fetchAllEmailsByLabel({
+    required String labelId,
+    int pageSize = defaultPageSize,
+    int maxTotalResults = 500,
+    bool unreadOnly = true,
+  }) async {
+    final List<Email> allEmails = [];
+    String? pageToken;
+    final useUnread = unreadOnly && _unreadOnlyForLabel(labelId);
+
+    while (allEmails.length < maxTotalResults) {
+      final result = await fetchEmailsByLabelPage(
+        labelId: labelId,
+        pageToken: pageToken,
+        maxResults: pageSize,
+        unreadOnly: useUnread,
+      );
+      if (result.emails.isEmpty) break;
+      allEmails.addAll(result.emails);
+      if (result.nextPageToken == null) break;
+      if (allEmails.length >= maxTotalResults) break;
+      pageToken = result.nextPageToken;
+    }
+
+    return allEmails;
+  }
+
+  /// Legacy: fetch emails (first page only, unread for inbox/spam)
+  static Future<List<Email>> fetchEmailsByLabel({
+    required String labelId,
+    int maxResults = defaultPageSize,
+  }) async {
+    final result = await fetchEmailsByLabelPage(
+      labelId: labelId,
+      maxResults: maxResults,
+    );
+    return result.emails;
+  }
+
+  /// Fetch emails (convenience - uses INBOX, unread only)
+  static Future<List<Email>> fetchEmails({
+    int maxResults = defaultPageSize,
+    String? labelId,
+  }) async {
+    final result = await fetchEmailsByLabelPage(
+      labelId: labelId ?? GmailLabels.inbox,
+      maxResults: maxResults,
+    );
+    return result.emails;
+  }
+
+  /// Fetch all emails (paginated). Uses parallel gets and metadata format for speed.
+  /// [maxTotalResults] limits the total number of emails to fetch (null = no limit).
   static Future<List<Email>> fetchAllEmails({
-    int pageSize = 20,
+    int pageSize = 50,
     int? maxTotalResults,
   }) async {
     try {
@@ -112,40 +216,40 @@ class GmailService {
       String? pageToken;
 
       do {
-        final messages = await gmailApi.users.messages.list(
+        final listResponse = await gmailApi.users.messages.list(
           'me',
           maxResults: pageSize,
           pageToken: pageToken,
         );
 
-        if (messages.messages == null || messages.messages!.isEmpty) {
-          break;
-        }
+        final messages = listResponse.messages ?? [];
+        if (messages.isEmpty) break;
 
-        for (var message in messages.messages!) {
-          // Stop if we've reached the max limit
-          if (maxTotalResults != null && allEmails.length >= maxTotalResults) {
-            break;
-          }
-
+        // Fetch this page of messages in parallel (metadata = no full body, faster)
+        final futures = messages.map((msgRef) async {
           try {
-            final fullMessage = await gmailApi.users.messages.get(
+            final msg = await gmailApi.users.messages.get(
               'me',
-              message.id!,
-              format: 'full',
+              msgRef.id!,
+              format: 'metadata',
             );
-            allEmails.add(_parseGmailMessage(fullMessage));
+            return _parseGmailMessage(msg);
           } catch (e) {
             print('Error fetching message: $e');
+            return null;
           }
+        });
+        final results = await Future.wait(futures);
+        final pageEmails = results.whereType<Email>().toList();
+        if (maxTotalResults != null) {
+          final remaining = maxTotalResults - allEmails.length;
+          allEmails.addAll(pageEmails.take(remaining));
+        } else {
+          allEmails.addAll(pageEmails);
         }
 
-        // Break if we've reached the max limit
-        if (maxTotalResults != null && allEmails.length >= maxTotalResults) {
-          break;
-        }
-
-        pageToken = messages.nextPageToken;
+        if (maxTotalResults != null && allEmails.length >= maxTotalResults) break;
+        pageToken = listResponse.nextPageToken;
       } while (pageToken != null);
 
       await _saveEmails(allEmails);
@@ -177,36 +281,79 @@ class GmailService {
     }
   }
 
-  /// Search emails
-  static Future<List<Email>> searchEmails(String query) async {
+  /// Get the full email body for display, preferring HTML for rich rendering
+  /// (clickable links, formatting). Falls back to plain text body.
+  static Future<String?> getEmailBodyForDisplay(String emailId) async {
+    try {
+      final gmailApi = await GmailAuthService.getGmailService();
+      if (gmailApi == null) return null;
+
+      final message = await gmailApi.users.messages.get(
+        'me',
+        emailId,
+        format: 'full',
+      );
+
+      // Try HTML first for rich rendering (links, formatting)
+      final htmlBody = _findHtmlInPart(message.payload);
+      if (htmlBody != null && htmlBody.isNotEmpty) return htmlBody;
+
+      // Fall back to plain text body
+      return _extractEmailBody(message);
+    } catch (e) {
+      print('Error getting email body for display: $e');
+      return null;
+    }
+  }
+
+  /// Recursively search MIME parts for text/html content
+  static String? _findHtmlInPart(gmail.MessagePart? part) {
+    if (part == null) return null;
+
+    if (part.mimeType == 'text/html' && part.body?.data != null) {
+      return _decodeBase64(part.body!.data!);
+    }
+
+    if (part.parts != null) {
+      for (var subPart in part.parts!) {
+        final html = _findHtmlInPart(subPart);
+        if (html != null) return html;
+      }
+    }
+
+    return null;
+  }
+
+  /// Search emails. Uses list (with page size) then parallel gets with metadata for speed.
+  static Future<List<Email>> searchEmails(String query, {int maxResults = 50}) async {
     try {
       final gmailApi = await GmailAuthService.getGmailService();
       if (gmailApi == null) return [];
 
-      final messages = await gmailApi.users.messages.list(
+      final listResponse = await gmailApi.users.messages.list(
         'me',
         q: query,
-        maxResults: 50,
+        maxResults: maxResults.clamp(1, 500),
       );
 
-      List<Email> searchResults = [];
+      final messageRefs = listResponse.messages ?? [];
+      if (messageRefs.isEmpty) return [];
 
-      if (messages.messages != null) {
-        for (var message in messages.messages!) {
-          try {
-            final fullMessage = await gmailApi.users.messages.get(
-              'me',
-              message.id!,
-              format: 'full',
-            );
-            searchResults.add(_parseGmailMessage(fullMessage));
-          } catch (e) {
-            print('Error fetching message: $e');
-          }
+      final futures = messageRefs.map((msgRef) async {
+        try {
+          final msg = await gmailApi.users.messages.get(
+            'me',
+            msgRef.id!,
+            format: 'metadata',
+          );
+          return _parseGmailMessage(msg);
+        } catch (e) {
+          print('Error fetching message: $e');
+          return null;
         }
-      }
-
-      return searchResults;
+      });
+      final results = await Future.wait(futures);
+      return results.whereType<Email>().toList();
     } catch (e) {
       print('Error searching emails: $e');
       return [];
@@ -237,7 +384,11 @@ class GmailService {
       final gmailApi = await GmailAuthService.getGmailService();
       if (gmailApi == null) return false;
 
-      await gmailApi.users.messages.trash('me', emailId);
+      await gmailApi.users.messages.modify(
+        gmail.ModifyMessageRequest(addLabelIds: ['SPAM']),
+        'me',
+        emailId,
+      );
       return true;
     } catch (e) {
       print('Error marking email as spam: $e');
@@ -245,26 +396,36 @@ class GmailService {
     }
   }
 
+  /// Trash (delete) email
+  static Future<bool> trashEmail(String emailId) async {
+    try {
+      final gmailApi = await GmailAuthService.getGmailService();
+      if (gmailApi == null) return false;
+      await gmailApi.users.messages.trash('me', emailId);
+      return true;
+    } catch (e) {
+      print('Error trashing email: $e');
+      return false;
+    }
+  }
+
   /// Parse Gmail message to Email object
-  static Email _parseGmailMessage(gmail.Message message) {
+  static Email _parseGmailMessage(gmail.Message message, {String labelId = 'INBOX'}) {
     String subject = 'No Subject';
     String from = 'Unknown';
+    String to = '';
     String snippet = message.snippet ?? '';
     String body = _extractEmailBody(message);
 
-    // Parse headers
     if (message.payload?.headers != null) {
       for (var header in message.payload!.headers!) {
-        if (header.name?.toLowerCase() == 'subject') {
-          subject = header.value ?? 'No Subject';
-        }
-        if (header.name?.toLowerCase() == 'from') {
-          from = header.value ?? 'Unknown';
-        }
+        final name = header.name?.toLowerCase() ?? '';
+        if (name == 'subject') subject = header.value ?? 'No Subject';
+        if (name == 'from') from = header.value ?? 'Unknown';
+        if (name == 'to') to = header.value ?? '';
       }
     }
 
-    // Parse date
     DateTime date = DateTime.now();
     if (message.internalDate != null) {
       date = DateTime.fromMillisecondsSinceEpoch(
@@ -276,10 +437,11 @@ class GmailService {
       id: message.id ?? '',
       subject: subject,
       from: from,
+      to: to,
       snippet: snippet,
       body: body,
       date: date,
-      isPhishing: false,
+      labelId: labelId,
     );
   }
 
