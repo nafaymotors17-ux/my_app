@@ -8,6 +8,9 @@ class PrefsService {
 
   static const String _phishingScansKey = 'phishing_scans_v1';
   static const String _onboardingCompletedKey = 'onboarding_completed_v1';
+  static const String _onboardingSmsEnabledKey = 'onboarding_sms_enabled_v1';
+  static const String _onboardingGmailEnabledKey = 'onboarding_gmail_enabled_v1';
+  static const String _onboardingPasteEnabledKey = 'onboarding_paste_enabled_v1';
 
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -20,6 +23,24 @@ class PrefsService {
 
   static Future<void> setOnboardingCompleted([bool completed = true]) async {
     await _prefs?.setBool(_onboardingCompletedKey, completed);
+  }
+
+  /// User-selected sources from onboarding (progressive setup).
+  static bool onboardingSmsEnabled() =>
+      _prefs?.getBool(_onboardingSmsEnabledKey) ?? true;
+  static bool onboardingGmailEnabled() =>
+      _prefs?.getBool(_onboardingGmailEnabledKey) ?? true;
+  static bool onboardingPasteEnabled() =>
+      _prefs?.getBool(_onboardingPasteEnabledKey) ?? true;
+
+  static Future<void> setOnboardingSources({
+    required bool sms,
+    required bool gmail,
+    required bool paste,
+  }) async {
+    await _prefs?.setBool(_onboardingSmsEnabledKey, sms);
+    await _prefs?.setBool(_onboardingGmailEnabledKey, gmail);
+    await _prefs?.setBool(_onboardingPasteEnabledKey, paste);
   }
 
   /// All persisted AI scan results keyed by message id.
@@ -75,6 +96,9 @@ class PrefsService {
     await _prefs?.remove('cleared_ids');
     await _prefs?.remove(_phishingScansKey);
     await _prefs?.remove(_onboardingCompletedKey);
+    await _prefs?.remove(_onboardingSmsEnabledKey);
+    await _prefs?.remove(_onboardingGmailEnabledKey);
+    await _prefs?.remove(_onboardingPasteEnabledKey);
   }
 
   /// Clears only AI phishing scan history (Threat inbox + list badges).
