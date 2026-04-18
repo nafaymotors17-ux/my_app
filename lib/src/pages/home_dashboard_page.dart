@@ -10,6 +10,9 @@ class HomeDashboardPage extends StatelessWidget {
     required this.onGoToThreats,
     required this.onGoToMore,
     required this.onQuickScan,
+    required this.onTapStatFlagged,
+    required this.onTapStatSafe,
+    required this.onTapStatTotal,
   });
 
   final VoidCallback onGoToSms;
@@ -17,6 +20,15 @@ class HomeDashboardPage extends StatelessWidget {
   final VoidCallback onGoToThreats;
   final VoidCallback onGoToMore;
   final VoidCallback onQuickScan;
+
+  /// Opens the Threat inbox (persisted phishing items).
+  final VoidCallback onTapStatFlagged;
+
+  /// Choose SMS or Email, then opens that inbox filtered to safe scans.
+  final VoidCallback onTapStatSafe;
+
+  /// Opens full list of saved scans (SMS & Email tabs).
+  final VoidCallback onTapStatTotal;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +78,8 @@ class HomeDashboardPage extends StatelessWidget {
                       value: '$phishing',
                       color: const Color(0xFFDC2626),
                       icon: Icons.warning_amber_rounded,
+                      tooltip: 'Open threat inbox',
+                      onTap: onTapStatFlagged,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -75,6 +89,8 @@ class HomeDashboardPage extends StatelessWidget {
                       value: '$safe',
                       color: const Color(0xFF059669),
                       icon: Icons.verified_user_outlined,
+                      tooltip: 'Safe scans — SMS or Email',
+                      onTap: onTapStatSafe,
                     ),
                   ),
                 ],
@@ -90,6 +106,8 @@ class HomeDashboardPage extends StatelessWidget {
                 color: cs.primary,
                 icon: Icons.analytics_outlined,
                 wide: true,
+                tooltip: 'All saved scans — SMS & Email list',
+                onTap: onTapStatTotal,
               ),
             ),
           ),
@@ -139,7 +157,7 @@ class HomeDashboardPage extends StatelessWidget {
                 _NavTile(
                   icon: Icons.apps_outlined,
                   title: 'More',
-                  subtitle: 'User guide, about, settings & data',
+                  subtitle: 'User guide and settings & data',
                   onTap: onGoToMore,
                 ),
               ]),
@@ -159,6 +177,8 @@ class _StatCard extends StatelessWidget {
     required this.color,
     required this.icon,
     this.wide = false,
+    required this.onTap,
+    this.tooltip,
   });
 
   final String label;
@@ -166,12 +186,13 @@ class _StatCard extends StatelessWidget {
   final Color color;
   final IconData icon;
   final bool wide;
+  final VoidCallback onTap;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Card(
-      child: Padding(
+    final body = Padding(
         padding: EdgeInsets.symmetric(
           horizontal: wide ? 20 : 16,
           vertical: 18,
@@ -231,7 +252,19 @@ class _StatCard extends StatelessWidget {
                   ),
                 ],
               ),
-      ),
+    );
+
+    Widget tappable = InkWell(
+      onTap: onTap,
+      child: body,
+    );
+    if (tooltip != null && tooltip!.isNotEmpty) {
+      tappable = Tooltip(message: tooltip!, child: tappable);
+    }
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: tappable,
     );
   }
 }

@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/pages/about_page.dart';
 import 'package:my_app/src/pages/help_page.dart';
 import 'package:my_app/src/pages/settings_page.dart';
-import 'package:my_app/src/widgets/quick_scan_sheet.dart';
 
-/// Entry point for secondary screens (guide, about, settings).
+/// Entry point for secondary screens (guide, settings).
 class MoreHubPage extends StatelessWidget {
   const MoreHubPage({
     super.key,
@@ -50,7 +48,7 @@ class MoreHubPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'User guide, project information, and data controls.',
+                    'User guide and data controls.',
                     style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                   ),
                 ],
@@ -62,13 +60,6 @@ class MoreHubPage extends StatelessWidget {
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 _MoreTile(
-                  icon: Icons.bolt_rounded,
-                  title: 'Quick scan',
-                  subtitle: 'Paste SMS or email text — no inbox required',
-                  color: const Color(0xFF0D9488),
-                  onTap: () => QuickScanSheet.show(context),
-                ),
-                _MoreTile(
                   icon: Icons.menu_book_outlined,
                   title: 'User guide',
                   subtitle: 'How scanning, Gmail, and threat separation work',
@@ -76,17 +67,6 @@ class MoreHubPage extends StatelessWidget {
                   onTap: () => Navigator.of(context).push<void>(
                     MaterialPageRoute<void>(
                       builder: (_) => const HelpPage(),
-                    ),
-                  ),
-                ),
-                _MoreTile(
-                  icon: Icons.info_outline_rounded,
-                  title: 'About this project',
-                  subtitle: 'Version, scope, and acknowledgements',
-                  color: const Color(0xFF0369A1),
-                  onTap: () => Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const AboutPage(),
                     ),
                   ),
                 ),

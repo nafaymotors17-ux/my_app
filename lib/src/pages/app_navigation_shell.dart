@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:my_app/src/controllers/message_reader_controller.dart';
 import 'package:my_app/src/pages/home_dashboard_page.dart';
+import 'package:my_app/src/services/prefs_service.dart';
 import 'package:my_app/src/pages/message_reader_page.dart';
 import 'package:my_app/src/pages/more_hub_page.dart';
 import 'package:my_app/src/pages/threats_page.dart';
+import 'package:my_app/src/pages/total_scans_page.dart';
 import 'package:my_app/src/widgets/quick_scan_sheet.dart';
 
 /// Primary shell: dashboard + SMS + Email + unified threat inbox.
@@ -36,6 +38,71 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     _reloadReaders();
   }
 
+  /// Safe-scan stat: SMS vs Gmail inbox with the Safe filter.
+  void _showSafeInboxPicker() {
+    final scans = PrefsService.getPhishingScans().values;
+    final smsSafe =
+        scans.where((r) => !r.isPhishing && r.source == 'sms').length;
+    final gmailSafe =
+        scans.where((r) => !r.isPhishing && r.source == 'gmail').length;
+    const headline = 'View safe scans';
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        final tt = Theme.of(ctx).textTheme;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    headline,
+                    style: tt.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.sms_rounded),
+                  title: const Text('SMS inbox'),
+                  subtitle: Text('$smsSafe safe in scan history'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _onDestination(1);
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _smsReaderKey.currentState?.readerController
+                          .setInboxSegment(InboxSegment.safe);
+                    });
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.mail_outline),
+                  title: const Text('Email (Gmail)'),
+                  subtitle: Text('$gmailSafe safe in scan history'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _onDestination(2);
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _emailReaderKey.currentState?.readerController
+                          .setInboxSegment(InboxSegment.safe);
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -50,6 +117,17 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
             onGoToThreats: () => _onDestination(3),
             onGoToMore: () => _onDestination(4),
             onQuickScan: () => QuickScanSheet.show(context),
+            onTapStatFlagged: () => _onDestination(3),
+            onTapStatSafe: _showSafeInboxPicker,
+            onTapStatTotal: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => TotalScansPage(
+                    onScanRemoved: _reloadReaders,
+                  ),
+                ),
+              );
+            },
           ),
           MessageReaderPage(
             key: _smsReaderKey,

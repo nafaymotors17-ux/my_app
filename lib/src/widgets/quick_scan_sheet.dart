@@ -11,9 +11,7 @@ class QuickScanSheet extends StatefulWidget {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(ctx).bottom,
-        ),
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
         child: const QuickScanSheet(),
       ),
     );
@@ -87,12 +85,6 @@ class _QuickScanSheetState extends State<QuickScanSheet> {
               'Quick scan',
               style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Paste SMS or email text. Same model as inbox scans. '
-              'Nothing is saved unless you scan from a message list.',
-              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-            ),
             const SizedBox(height: 16),
             TextField(
               controller: _textController,
@@ -125,8 +117,8 @@ class _QuickScanSheetState extends State<QuickScanSheet> {
                 color: _lastPhishing == true
                     ? const Color(0xFFFEE2E2)
                     : _lastPhishing == false
-                        ? const Color(0xFFD1FAE5)
-                        : cs.errorContainer.withValues(alpha: 0.4),
+                    ? const Color(0xFFD1FAE5)
+                    : cs.errorContainer.withValues(alpha: 0.4),
                 borderRadius: BorderRadius.circular(12),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -137,13 +129,13 @@ class _QuickScanSheetState extends State<QuickScanSheet> {
                         _lastPhishing == true
                             ? Icons.warning_amber_rounded
                             : _lastPhishing == false
-                                ? Icons.check_circle_outline
-                                : Icons.error_outline,
+                            ? Icons.check_circle_outline
+                            : Icons.error_outline,
                         color: _lastPhishing == true
                             ? const Color(0xFFB91C1C)
                             : _lastPhishing == false
-                                ? const Color(0xFF047857)
-                                : cs.error,
+                            ? const Color(0xFF047857)
+                            : cs.error,
                       ),
                       const SizedBox(width: 10),
                       Expanded(

@@ -614,18 +614,29 @@ class MessageReaderPageState extends State<MessageReaderPage> {
     final isNarrow = !ResponsiveBreakpoints.isMediumOrWider(context);
     final cs = Theme.of(context).colorScheme;
     if (_selectionMode) {
+      final batchStyle = FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        minimumSize: const Size(0, 44),
+        tapTargetSize: MaterialTapTargetSize.padded,
+      );
       return [
         TextButton(
           onPressed: _selectAllVisible,
-          child: const Text('Select all'),
+          child: const Text('Select all', style: TextStyle(fontSize: 14)),
         ),
         Padding(
-          padding: const EdgeInsets.only(left: 4, right: 8),
+          padding: const EdgeInsets.only(left: 6, right: 8),
           child: FilledButton.icon(
-            onPressed:
-                _batchSelectedIds.isEmpty ? null : _runBatchScan,
+            style: batchStyle,
+            onPressed: _batchSelectedIds.isEmpty ? null : _runBatchScan,
             icon: const Icon(Icons.shield_rounded, size: 20),
-            label: Text('Scan (${_batchSelectedIds.length})'),
+            label: Text(
+              'Scan (${_batchSelectedIds.length})',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ),
       ];

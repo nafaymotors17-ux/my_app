@@ -228,15 +228,16 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
             child: FilledButton.icon(
               onPressed: _loading ? null : _runCheck,
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                minimumSize: const Size(double.infinity, 48),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
               icon: _loading
                   ? SizedBox(
-                      width: 20,
-                      height: 20,
+                      width: 22,
+                      height: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: cs.onPrimary,
