@@ -4,7 +4,7 @@ import 'package:my_app/src/utils/date_time_utils.dart';
 
 enum _ResultFilter { all, phishing, safe, failed }
 
-/// Full-screen report for a batch scan — suitable for thesis demos.
+/// Full-screen report for a batch scan.
 class BatchScanResultsPage extends StatefulWidget {
   const BatchScanResultsPage({
     super.key,
@@ -320,14 +320,14 @@ class _ResultRowCard extends StatelessWidget {
       accent = const Color(0xFFDC2626);
       label = item.result?.phishingConfidenceLine ??
           (item.result?.phishingPercentLabel != null
-              ? 'Confidence ${item.result!.phishingPercentLabel}'
+              ? 'Est. phishing risk ${item.result!.phishingPercentLabel}'
               : 'Phishing');
       statusIcon = Icons.warning_amber_rounded;
     } else {
       accent = const Color(0xFF059669);
       label = item.result?.phishingPercentLabel != null
-          ? 'Safe · ${item.result!.phishingPercentLabel} confidence'
-          : 'Safe';
+          ? 'Not flagged · ${item.result!.phishingPercentLabel} est. phishing risk'
+          : 'Not flagged';
       statusIcon = Icons.check_circle_outline;
     }
 

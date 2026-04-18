@@ -118,7 +118,8 @@ class HomeDashboardPage extends StatelessWidget {
                 _NavTile(
                   icon: Icons.sms_outlined,
                   title: 'SMS inbox',
-                  subtitle: 'Unread messages, scan with the shield, filter by phishing/safe',
+                  subtitle:
+                      'Unread messages—scan from the message or app bar, filter by phishing/safe',
                   onTap: onGoToSms,
                 ),
                 _NavTile(

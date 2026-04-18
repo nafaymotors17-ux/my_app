@@ -6,7 +6,7 @@ import 'package:my_app/src/controllers/message_reader_controller.dart';
 import 'package:my_app/src/services/gmail_service.dart';
 import 'package:my_app/src/models/batch_scan_result.dart';
 import 'package:my_app/src/models/message.dart';
-import 'package:my_app/src/pages/batch_scan_results_page.dart';
+import 'package:my_app/src/pages/batch_scan_progress_page.dart';
 import 'package:my_app/src/utils/responsive.dart';
 import 'package:my_app/src/widgets/empty_state_widget.dart';
 import 'package:my_app/src/widgets/filter_chips.dart';
@@ -52,7 +52,6 @@ class MessageReaderPageState extends State<MessageReaderPage> {
   final Set<String> _checkingAiIds = <String>{};
   bool _selectionMode = false;
   final Set<String> _batchSelectedIds = <String>{};
-  bool _batchScanning = false;
   bool _didInit = false;
 
   MessageReaderController get readerController => _controller;
@@ -134,59 +133,75 @@ class MessageReaderPageState extends State<MessageReaderPage> {
     _notifyToolbar();
   }
 
+  Future<BatchScanResultItem> _scanOneMessageForBatch(Message msg) async {
+    try {
+      late final SmsAiResult result;
+      if (msg.source == 'sms') {
+        result = await SmsAiService.checkSms(msg.body);
+      } else {
+        if (!_controller.gmailSignedIn) {
+          return BatchScanResultItem.failure(
+            msg,
+            'Sign in to Gmail to scan email',
+          );
+        }
+        final gmailId = msg.id.replaceFirst('gmail_', '');
+        final fullBody = await GmailService.getEmailBodyForDisplay(gmailId);
+        final bodyToSend =
+            (fullBody != null && fullBody.trim().isNotEmpty) ? fullBody : msg.body;
+        result = await SmsAiService.checkEmailText(bodyToSend);
+      }
+      await _controller.recordPhishingScan(msg, result);
+      return BatchScanResultItem.success(msg, result);
+    } catch (e) {
+      return BatchScanResultItem.failure(
+        msg,
+        SmsAiService.describeNetworkError(e),
+      );
+    }
+  }
+
   Future<void> _runBatchScan() async {
     final msgs = _controller.visibleMessages
         .where((m) => _batchSelectedIds.contains(m.id))
         .toList();
     if (msgs.isEmpty) return;
 
-    setState(() => _batchScanning = true);
-    _notifyToolbar();
-
-    final results = <BatchScanResultItem>[];
-    for (final msg in msgs) {
-      if (!mounted) return;
-      try {
-        late final SmsAiResult result;
-        if (msg.source == 'sms') {
-          result = await SmsAiService.checkSms(msg.body);
-        } else {
-          if (!_controller.gmailSignedIn) {
-            results.add(
-              BatchScanResultItem.failure(msg, 'Sign in to Gmail to scan email'),
-            );
-            continue;
-          }
-          final gmailId = msg.id.replaceFirst('gmail_', '');
-          final fullBody = await GmailService.getEmailBodyForDisplay(gmailId);
-          final bodyToSend =
-              (fullBody != null && fullBody.trim().isNotEmpty) ? fullBody : msg.body;
-          result = await SmsAiService.checkEmailText(bodyToSend);
-        }
-        await _controller.recordPhishingScan(msg, result);
-        results.add(BatchScanResultItem.success(msg, result));
-      } catch (e) {
-        results.add(
-          BatchScanResultItem.failure(msg, SmsAiService.describeNetworkError(e)),
-        );
-      }
-    }
-
-    if (!mounted) return;
-    final completedAt = DateTime.now();
     setState(() {
-      _batchScanning = false;
       _selectionMode = false;
       _batchSelectedIds.clear();
     });
     _notifyToolbar();
+    if (!mounted) return;
 
     await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => BatchScanResultsPage(
-          items: results,
-          completedAt: completedAt,
-        ),
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 380),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return BatchScanProgressPage(
+            sourceLabel: widget.title,
+            messages: msgs,
+            scanOne: _scanOneMessageForBatch,
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            ),
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.06),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              )),
+              child: child,
+            ),
+          );
+        },
       ),
     );
   }
@@ -341,16 +356,13 @@ class MessageReaderPageState extends State<MessageReaderPage> {
         if (!mounted) return;
         await _controller.recordPhishingScan(msg, result);
         if (!mounted) return;
-        final pct = result.prediction == 1 &&
-                result.phishingProbability != null
-            ? ' · ${result.phishingPercentLabel} confidence'
-            : '';
+        final suffix = result.phishingRiskPercentSuffix ?? '';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               result.prediction == 1
-                  ? 'Phishing risk: SMS flagged$pct'
-                  : 'SMS looks safe',
+                  ? 'SMS: flagged as phishing$suffix'
+                  : 'SMS: not flagged as phishing$suffix',
             ),
             backgroundColor:
                 result.prediction == 1 ? Colors.red : Colors.green,
@@ -379,16 +391,13 @@ class MessageReaderPageState extends State<MessageReaderPage> {
         await _controller.recordPhishingScan(msg, result);
         if (!mounted) return;
 
-        final pctMail = result.prediction == 1 &&
-                result.phishingProbability != null
-            ? ' · ${result.phishingPercentLabel} confidence'
-            : '';
+        final suffixMail = result.phishingRiskPercentSuffix ?? '';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               result.prediction == 1
-                  ? 'Phishing risk: email flagged$pctMail'
-                  : 'Email looks safe',
+                  ? 'Email: flagged as phishing$suffixMail'
+                  : 'Email: not flagged as phishing$suffixMail',
             ),
             backgroundColor: result.prediction == 1 ? Colors.red : Colors.green,
           ),
@@ -607,30 +616,16 @@ class MessageReaderPageState extends State<MessageReaderPage> {
     if (_selectionMode) {
       return [
         TextButton(
-          onPressed: _batchScanning ? null : _selectAllVisible,
+          onPressed: _selectAllVisible,
           child: const Text('Select all'),
         ),
         Padding(
           padding: const EdgeInsets.only(left: 4, right: 8),
           child: FilledButton.icon(
-            onPressed: _batchScanning || _batchSelectedIds.isEmpty
-                ? null
-                : _runBatchScan,
-            icon: _batchScanning
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.shield_rounded, size: 20),
-            label: Text(
-              _batchScanning
-                  ? 'Scanning…'
-                  : 'Scan (${_batchSelectedIds.length})',
-            ),
+            onPressed:
+                _batchSelectedIds.isEmpty ? null : _runBatchScan,
+            icon: const Icon(Icons.shield_rounded, size: 20),
+            label: Text('Scan (${_batchSelectedIds.length})'),
           ),
         ),
       ];
@@ -638,10 +633,7 @@ class MessageReaderPageState extends State<MessageReaderPage> {
     return [
       IconButton(
         tooltip: 'Quick scan — paste text without picking a message',
-        onPressed: () => QuickScanSheet.show(
-          context,
-          initialMode: widget.mode,
-        ),
+        onPressed: () => QuickScanSheet.show(context),
         icon: Icon(
           Icons.bolt_rounded,
           color: cs.primary,
@@ -860,10 +852,10 @@ class MessageReaderPageState extends State<MessageReaderPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: _selectionMode
+            leading: _selectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: _batchScanning ? null : _exitSelectionMode,
+                onPressed: _exitSelectionMode,
               )
             : null,
         automaticallyImplyLeading: !_selectionMode,
@@ -884,38 +876,7 @@ class MessageReaderPageState extends State<MessageReaderPage> {
         surfaceTintColor: Colors.transparent,
         actions: buildAppBarActions(context),
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          content,
-          if (_batchScanning)
-            ModalBarrier(
-              color: Colors.black.withValues(alpha: 0.35),
-              dismissible: false,
-            ),
-          if (_batchScanning)
-            Center(
-              child: Card(
-                margin: const EdgeInsets.all(32),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Scanning ${_batchSelectedIds.length} messages…',
-                        style: Theme.of(context).textTheme.titleSmall,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+      body: content,
     );
   }
 }

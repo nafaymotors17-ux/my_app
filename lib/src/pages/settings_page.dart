@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:my_app/src/pages/onboarding_page.dart';
 import 'package:my_app/src/services/prefs_service.dart';
 
-/// Local data controls for the FYP demo (clears persisted prefs only).
+/// Local data and onboarding replay.
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -114,7 +114,7 @@ class _SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 8),
               Text(
                 'Message text is sent to your configured phishing-detection API '
-                'only when you tap the shield to scan. Nothing is uploaded automatically.',
+                'only when you run Scan. Nothing is uploaded automatically.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: cs.onSurfaceVariant,
                       height: 1.45,

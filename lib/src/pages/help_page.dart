@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Onboarding-style help for examiners and users.
+/// In-app user guide.
 class HelpPage extends StatelessWidget {
   const HelpPage({super.key});
 
@@ -27,16 +27,18 @@ class HelpPage extends StatelessWidget {
             title: 'SMS',
             body:
                 'Grant SMS permission when prompted. The list shows unread messages. '
-                'Select a message, then use the shield in the app bar to run the API check. '
-                'Use AI separation chips to show All, only Phishing-scanned, or only Safe-scanned items.',
+                'Open a message and tap Scan this message in the card, or select a row '
+                'and use the scan control in the app bar. Use the chips to show All, '
+                'only Phishing-scanned, or only Safe-scanned items.',
           ),
           _Section(
             icon: Icons.mail_outline,
             title: 'Email (Gmail)',
             body:
                 'Sign in with Google from the mail icon. The list shows Inbox unread '
-                'messages only, with Previous/Next paging. Open a message and scan with the shield; '
-                'the model uses the fetched body text.',
+                'messages only, with Previous/Next paging. Open a message and tap '
+                'Scan email text; the model uses the fetched body text. You can also '
+                'scan from the app bar when a message is selected.',
           ),
           _Section(
             icon: Icons.shield_outlined,

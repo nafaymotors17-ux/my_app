@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-/// Static project context for thesis / demo builds.
+/// App version and legal context.
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
 
@@ -43,7 +43,7 @@ class _AboutPageState extends State<AboutPage> {
                 color: cs.primaryContainer.withValues(alpha: 0.5),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.school_outlined, size: 48, color: cs.primary),
+              child: Icon(Icons.shield_rounded, size: 48, color: cs.primary),
             ),
           ),
           const SizedBox(height: 20),
@@ -62,11 +62,11 @@ class _AboutPageState extends State<AboutPage> {
           ),
           const SizedBox(height: 24),
           _Paragraph(
-            title: 'Project',
+            title: 'What it does',
             body:
-                'Final-year project prototype: classify SMS and email content '
-                'with a remote ML API, separate phishing from safe items, and '
-                'integrate Gmail folders (Inbox, Sent, Spam) for realistic evaluation.',
+                'Helps you assess SMS, Gmail, and pasted text for phishing risk '
+                'using your configured detection service. Results include a risk '
+                'score and label; you choose when to run a scan.',
           ),
           const SizedBox(height: 16),
           _Paragraph(
@@ -75,13 +75,6 @@ class _AboutPageState extends State<AboutPage> {
                 'This app assists analysis only. It is not a substitute for '
                 'enterprise security tools or provider spam filters. Always '
                 'verify sensitive actions outside the app.',
-          ),
-          const SizedBox(height: 16),
-          _Paragraph(
-            title: 'Customize for your report',
-            body:
-                'Replace this screen with your institution name, supervisor, '
-                'student ID, and submission date in the thesis PDF.',
           ),
         ],
       ),

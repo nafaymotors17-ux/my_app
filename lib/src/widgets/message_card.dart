@@ -279,9 +279,10 @@ class _AiChip extends StatelessWidget {
     final fg = isPhishing
         ? const Color(0xFFB91C1C)
         : const Color(0xFF047857);
-    final pct = confidence != null
-        ? ' ${(confidence! * 100).clamp(0.0, 100.0).toStringAsFixed(0)}%'
-        : '';
+    final riskPct = confidence != null
+        ? '${(confidence! * 100).clamp(0.0, 100.0).toStringAsFixed(0)}%'
+        : null;
+    final pctLabel = riskPct == null ? '' : ' · $riskPct risk';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -298,7 +299,7 @@ class _AiChip extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Text(
-            isPhishing ? 'PHISHING$pct' : 'SAFE$pct',
+            isPhishing ? 'PHISHING$pctLabel' : 'SAFE$pctLabel',
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w800,

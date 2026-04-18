@@ -74,9 +74,10 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: _onDestination,
-        height: 68,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         indicatorColor: cs.primaryContainer,
+        surfaceTintColor: Colors.transparent,
+        backgroundColor: cs.surface,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),

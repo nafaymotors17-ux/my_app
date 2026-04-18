@@ -9,7 +9,8 @@ import 'package:http/http.dart' as http;
 class SmsAiResult {
   final int prediction; // 0=safe, 1=phishing
   final String result; // "Safe" / "Phishing"
-  /// Class probability for phishing (0–1), when the model exposes `predict_proba`.
+  /// Estimated probability the message is phishing, 0–1 (when the API exposes it).
+  /// This is **not** “confidence that it is safe” — low values here mean low phishing risk.
   final double? phishingProbability;
 
   const SmsAiResult({
@@ -39,10 +40,17 @@ class SmsAiResult {
     return '${pct.toStringAsFixed(1)}%';
   }
 
-  /// Model confidence line — only meaningful when [prediction] is phishing.
+  /// Appends to titles so the number is never read as “confidence in safe”.
+  /// Example: ` (19.7% est. phishing risk)`.
+  String? get phishingRiskPercentSuffix {
+    if (phishingProbability == null) return null;
+    return ' ($phishingPercentLabel est. phishing risk)';
+  }
+
+  /// Line under the progress bar when [prediction] is phishing.
   String? get phishingConfidenceLine {
     if (prediction != 1 || phishingProbability == null) return null;
-    return 'Model confidence: $phishingPercentLabel';
+    return 'Estimated phishing risk: $phishingPercentLabel';
   }
 }
 

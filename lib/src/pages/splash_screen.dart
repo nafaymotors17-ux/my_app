@@ -146,15 +146,6 @@ class _SplashScreenState extends State<SplashScreen>
                               height: 1.35,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "Master's FYP · Intelligent threat separation",
-                            textAlign: TextAlign.center,
-                            style: tt.labelLarge?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.75),
-                              letterSpacing: 0.2,
-                            ),
-                          ),
                           const SizedBox(height: 48),
                           SizedBox(
                             width: 36,

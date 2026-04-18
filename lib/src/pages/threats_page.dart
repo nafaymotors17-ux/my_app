@@ -58,8 +58,8 @@ class _ThreatsPageState extends State<ThreatsPage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Messages you scanned with the ML API and marked as phishing. '
-                  'Removing an entry only deletes the saved result — it does not delete SMS or email.',
+                  'Messages you scanned that were classified as phishing. '
+                  'Removing an entry only deletes the stored result — it does not delete SMS or email.',
                   style: tt.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
                     height: 1.4,
@@ -90,7 +90,8 @@ class _ThreatsPageState extends State<ThreatsPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Open SMS or Email, select a message, and tap the shield to scan.',
+                        'Run Scan from inside a message, or use the scan control in the app bar '
+                        'when a message is selected. Phishing results appear here automatically.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: cs.onSurfaceVariant),
                       ),

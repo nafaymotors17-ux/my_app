@@ -1,10 +1,11 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:my_app/src/pages/app_navigation_shell.dart';
 import 'package:my_app/src/services/prefs_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-/// Three-slide first run: demo → how it works → ready (all services).
+/// Three-slide first run: preview → how it works → ready (all sources).
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
 
@@ -16,7 +17,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final PageController _pageController = PageController();
   int _index = 0;
 
-  // Slide 1: offline demo state (no network / no permissions).
+  // Slide 1: offline preview (no network / no permissions).
   bool _demoRan = false;
   int _demoAnimTick = 0;
 
@@ -80,7 +81,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   void _runDemoScan() {
-    // Offline demo: we intentionally avoid network calls during onboarding.
+    // Offline preview — no network calls during onboarding.
     setState(() {
       _demoRan = true;
       _demoAnimTick++;
@@ -103,8 +104,19 @@ class _OnboardingPageState extends State<OnboardingPage> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
-      body: SafeArea(
-        child: Column(
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              cs.primaryContainer.withValues(alpha: 0.45),
+              Theme.of(context).scaffoldBackgroundColor,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
@@ -151,8 +163,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     iconBg: const Color(0xFFCCFBF1),
                     iconColor: const Color(0xFF0F766E),
                     title: 'Stop phishing before you click',
-                    body:
-                        'Scan suspicious SMS and emails with confidence, highlights, and a saved Threat inbox.',
                     extra: Column(
                       children: [
                         _DemoComparisonCard(
@@ -188,11 +198,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     iconBg: const Color(0xFFE0E7FF),
                     iconColor: const Color(0xFF3730A3),
                     title: 'How it works',
-                    body:
-                        'You stay in control. The app only analyzes text when you tap Scan.',
                     extra: Column(
                       children: [
-                        _HowItWorksCard(active: _index == 1),
+                        _InteractiveHowItWorksCard(active: _index == 1),
                         const SizedBox(height: 10),
                         _SmallInfoPill(
                           icon: Icons.policy_outlined,
@@ -246,12 +254,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   const Spacer(),
                   FilledButton(
                     onPressed: _next,
-                    child: Text(_index < _total - 1 ? 'Next' : 'Get started'),
+                    child: Text(_index < _total - 1 ? 'Continue' : 'Get started'),
                   ),
                 ],
               ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -266,7 +275,7 @@ class _Slide extends StatefulWidget {
     required this.iconBg,
     required this.iconColor,
     required this.title,
-    required this.body,
+    this.body,
     required this.extra,
   });
 
@@ -276,7 +285,8 @@ class _Slide extends StatefulWidget {
   final Color iconBg;
   final Color iconColor;
   final String title;
-  final String body;
+  /// Optional; omitted on slides where the title and card carry the message.
+  final String? body;
   final Widget extra;
 
   @override
@@ -361,16 +371,22 @@ class _SlideState extends State<_Slide> with SingleTickerProviderStateMixin {
                   letterSpacing: -0.3,
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                widget.body,
-                textAlign: TextAlign.center,
-                style: tt.bodyLarge?.copyWith(
-                  height: 1.45,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+              if (widget.body != null && widget.body!.trim().isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  widget.body!,
+                  textAlign: TextAlign.center,
+                  style: tt.bodyLarge?.copyWith(
+                    height: 1.45,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
+              ],
+              SizedBox(
+                height: widget.body != null && widget.body!.trim().isNotEmpty
+                    ? 24
+                    : 16,
               ),
-              const SizedBox(height: 24),
               widget.extra,
             ],
           ),
@@ -415,170 +431,467 @@ class _SmallInfoPill extends StatelessWidget {
   }
 }
 
-class _HowItWorksCard extends StatefulWidget {
-  const _HowItWorksCard({required this.active});
+enum _ScanSurface { inbox, message, quick }
+
+/// Tappable paths: scan from list, inside message, or Quick scan — plus after-scan summary.
+class _InteractiveHowItWorksCard extends StatefulWidget {
+  const _InteractiveHowItWorksCard({required this.active});
 
   final bool active;
 
   @override
-  State<_HowItWorksCard> createState() => _HowItWorksCardState();
+  State<_InteractiveHowItWorksCard> createState() =>
+      _InteractiveHowItWorksCardState();
 }
 
-class _HowItWorksCardState extends State<_HowItWorksCard>
+class _InteractiveHowItWorksCardState extends State<_InteractiveHowItWorksCard>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
+  _ScanSurface _surface = _ScanSurface.inbox;
+  late final AnimationController _enter;
 
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(
+    _enter = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 680),
     );
-    if (widget.active) _c.forward();
+    if (widget.active) _enter.forward();
   }
 
   @override
-  void didUpdateWidget(covariant _HowItWorksCard oldWidget) {
+  void didUpdateWidget(covariant _InteractiveHowItWorksCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.active && !oldWidget.active) {
-      _c.forward(from: 0);
+      _enter.forward(from: 0);
     }
   }
 
   @override
   void dispose() {
-    _c.dispose();
+    _enter.dispose();
     super.dispose();
+  }
+
+  void _pick(_ScanSurface next) {
+    if (next == _surface) return;
+    HapticFeedback.selectionClick();
+    setState(() => _surface = next);
   }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+
+    final chips = Row(
+      children: [
+        Expanded(
+          child: _ScanChip(
+            label: 'List & bar',
+            icon: Icons.view_list_rounded,
+            selected: _surface == _ScanSurface.inbox,
+            onTap: () => _pick(_ScanSurface.inbox),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _ScanChip(
+            label: 'In message',
+            icon: Icons.chat_bubble_outline_rounded,
+            selected: _surface == _ScanSurface.message,
+            onTap: () => _pick(_ScanSurface.message),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _ScanChip(
+            label: 'Quick',
+            icon: Icons.bolt_rounded,
+            selected: _surface == _ScanSurface.quick,
+            onTap: () => _pick(_ScanSurface.quick),
+          ),
+        ),
+      ],
+    );
+
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'What you get',
-              style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        child: FadeTransition(
+          opacity: CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+          Text(
+            'Choose where to scan',
+            style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Same model everywhere — pick what fits the moment.',
+            style: tt.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+              height: 1.35,
             ),
-            const SizedBox(height: 10),
-            _StaggerBullet(
-              controller: _c,
-              interval: const Interval(0, 0.28, curve: Curves.easeOutCubic),
-              child: _Bullet(
-                icon: Icons.percent_rounded,
-                title: 'Confidence score',
-                subtitle: 'A clear probability + label (Safe / Suspicious)',
-                color: cs.primary,
-              ),
+          ),
+          const SizedBox(height: 14),
+          chips,
+          const SizedBox(height: 14),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 320),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, anim) {
+              return FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.06),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
+                ),
+              );
+            },
+            child: KeyedSubtree(
+              key: ValueKey<_ScanSurface>(_surface),
+              child: _ScanSurfaceDetail(surface: _surface),
             ),
-            const SizedBox(height: 8),
-            _StaggerBullet(
-              controller: _c,
-              interval: const Interval(0.18, 0.52, curve: Curves.easeOutCubic),
-              child: _Bullet(
-                icon: Icons.highlight_rounded,
-                title: 'Highlights',
-                subtitle:
-                    'Risky parts like links, urgency and verification prompts',
-                color: const Color(0xFF7C3AED),
-              ),
-            ),
-            const SizedBox(height: 8),
-            _StaggerBullet(
-              controller: _c,
-              interval: const Interval(0.38, 0.78, curve: Curves.easeOutCubic),
-              child: _Bullet(
-                icon: Icons.inventory_2_outlined,
-                title: 'Threat inbox',
-                subtitle: 'Save results locally so you can review later',
-                color: const Color(0xFFB45309),
-              ),
-            ),
-            const SizedBox(height: 14),
-            AnimatedBuilder(
-              animation: _c,
-              builder: (context, _) {
-                final t = const Interval(0.55, 1, curve: Curves.easeOutCubic)
-                    .transform(_c.value);
-                return Opacity(
-                  opacity: t,
-                  child: Transform.translate(
-                    offset: Offset(0, 8 * (1 - t)),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: cs.outlineVariant.withValues(alpha: 0.6),
-                        ),
-                      ),
-                      child: Text(
-                        'Flow: Open a message → Tap the shield → Get score + highlights → Save.',
-                        style: tt.bodyMedium?.copyWith(
-                          height: 1.35,
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          Text(
+            'After you scan',
+            style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          _AfterScanRow(
+            icon: Icons.percent_rounded,
+            iconColor: const Color(0xFF3730A3),
+            title: 'Risk score',
+            subtitle: 'Percentage and a Safe or Suspicious label',
+          ),
+          const SizedBox(height: 10),
+          _AfterScanRow(
+            icon: Icons.shield_outlined,
+            iconColor: const Color(0xFFB45309),
+            title: 'Threat inbox',
+            subtitle:
+                'Phishing results save automatically — review or swipe to clear',
+          ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _StaggerBullet extends StatelessWidget {
-  const _StaggerBullet({
-    required this.controller,
-    required this.interval,
-    required this.child,
+class _ScanChip extends StatelessWidget {
+  const _ScanChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
   });
 
-  final AnimationController controller;
-  final Interval interval;
-  final Widget child;
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final t = interval.transform(controller.value);
-        return Opacity(
-          opacity: t,
-          child: Transform.translate(
-            offset: Offset(16 * (1 - t), 0),
-            child: child,
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? cs.primaryContainer.withValues(alpha: 0.85)
+                : cs.surfaceContainerHighest.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? cs.primary.withValues(alpha: 0.45) : cs.outlineVariant,
+              width: selected ? 1.5 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: cs.primary.withValues(alpha: 0.12),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
           ),
-        );
-      },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 22,
+                color: selected ? cs.primary : cs.onSurfaceVariant,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: selected ? cs.primary : cs.onSurfaceVariant,
+                      height: 1.2,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
 
-class _Bullet extends StatelessWidget {
-  const _Bullet({
+class _ScanSurfaceDetail extends StatelessWidget {
+  const _ScanSurfaceDetail({required this.surface});
+
+  final _ScanSurface surface;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    switch (surface) {
+      case _ScanSurface.inbox:
+        return _DetailCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Without opening the full message',
+                style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Select a row in SMS or Email, then use the scan control in the '
+                'app bar. Select several messages with the checklist and tap '
+                'Scan (n) for a batch run.',
+                style: tt.bodyMedium?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _MiniAppBarMock(
+                trailing: Icon(Icons.shield_rounded, color: cs.primary, size: 22),
+              ),
+            ],
+          ),
+        );
+      case _ScanSurface.message:
+        return _DetailCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Inside the conversation or email',
+                style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Scroll to the scan card and tap Scan this message (SMS) or '
+                'Scan email text (Gmail).',
+                style: tt.bodyMedium?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _MiniMessageMock(cs: cs),
+            ],
+          ),
+        );
+      case _ScanSurface.quick:
+        return _DetailCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'No inbox needed',
+                style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tap the bolt icon from the app bar or Home, paste any text, '
+                'and run Scan — ideal for forwards and screenshots.',
+                style: tt.bodyMedium?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _MiniQuickMock(cs: cs),
+            ],
+          ),
+        );
+    }
+  }
+}
+
+class _DetailCard extends StatelessWidget {
+  const _DetailCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _MiniAppBarMock extends StatelessWidget {
+  const _MiniAppBarMock({required this.trailing});
+
+  final Widget trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.6)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.bolt_rounded, color: cs.primary, size: 20),
+          const SizedBox(width: 8),
+          Icon(Icons.checklist_rounded, color: cs.onSurfaceVariant, size: 20),
+          const Spacer(),
+          trailing,
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniMessageMock extends StatelessWidget {
+  const _MiniMessageMock({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '… message preview …',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.radar_rounded, size: 18),
+            label: const Text('Scan this message'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniQuickMock extends StatelessWidget {
+  const _MiniQuickMock({required this.cs});
+
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              'Paste SMS or email text…',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: cs.outline,
+                    fontStyle: FontStyle.italic,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: null,
+              child: const Text('Scan'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AfterScanRow extends StatelessWidget {
+  const _AfterScanRow({
     required this.icon,
+    required this.iconColor,
     required this.title,
     required this.subtitle,
-    required this.color,
   });
 
   final IconData icon;
+  final Color iconColor;
   final String title;
   final String subtitle;
-  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -588,13 +901,13 @@ class _Bullet extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 34,
-          height: 34,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
+            color: iconColor.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(icon, size: 18, color: color),
+          child: Icon(icon, size: 20, color: iconColor),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -693,7 +1006,6 @@ class _DemoComparisonCard extends StatelessWidget {
                           'Verify your account now: secure-login.example.com/verify',
                       confidence: demoRan ? 0.92 : null,
                       isPhishing: true,
-                      highlights: const ['Verify', 'secure-login', '/verify'],
                       animTick: animTick,
                     ),
                     const SizedBox(height: 10),
@@ -703,7 +1015,6 @@ class _DemoComparisonCard extends StatelessWidget {
                           'Your OTP is 482913. Do not share it with anyone.',
                       confidence: demoRan ? 0.09 : null,
                       isPhishing: false,
-                      highlights: const ['OTP', 'Do not share'],
                       animTick: animTick,
                     ),
                   ],
@@ -713,7 +1024,7 @@ class _DemoComparisonCard extends StatelessWidget {
             if (!demoRan) ...[
               const SizedBox(height: 10),
               Text(
-                'Tap “Preview results” to show confidence + highlights.',
+                'Tap “Preview results” to see sample risk scores.',
                 textAlign: TextAlign.center,
                 style: tt.labelMedium?.copyWith(color: cs.onSurfaceVariant),
               ),
@@ -859,7 +1170,6 @@ class _DemoRow extends StatelessWidget {
     required this.message,
     required this.confidence,
     required this.isPhishing,
-    required this.highlights,
     required this.animTick,
   });
 
@@ -867,7 +1177,6 @@ class _DemoRow extends StatelessWidget {
   final String message;
   final double? confidence;
   final bool isPhishing;
-  final List<String> highlights;
   final int animTick;
 
   @override
@@ -934,55 +1243,6 @@ class _DemoRow extends StatelessWidget {
                 message,
                 style: tt.bodyMedium?.copyWith(height: 1.3),
               ),
-              if (confidence != null) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: highlights
-                      .asMap()
-                      .entries
-                      .map(
-                        (e) => TweenAnimationBuilder<double>(
-                          tween: Tween<double>(begin: 0, end: 1),
-                          duration: Duration(milliseconds: 280 + e.key * 70),
-                          // easeOutBack overshoots past 1.0 — Opacity requires [0, 1].
-                          curve: Curves.easeOutBack,
-                          builder: (context, t, child) {
-                            final opacity = t.clamp(0.0, 1.0);
-                            final scale = 0.92 + 0.08 * t;
-                            return Opacity(
-                              opacity: opacity,
-                              child: Transform.scale(
-                                scale: scale,
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.75),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Colors.black.withValues(alpha: 0.06),
-                              ),
-                            ),
-                            child: Text(
-                              e.value,
-                              style: tt.labelSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ],
             ],
           ),
         );

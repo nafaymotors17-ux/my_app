@@ -24,14 +24,14 @@ class EmptyStateWidget extends StatelessWidget {
       icon = Icons.verified_user_outlined;
       label = 'No phishing matches here';
       subtitle = isGmail
-          ? 'Scan emails with the shield in the app bar, or switch to All to browse messages.'
-          : 'Scan SMS with the shield in the app bar, or switch to All.';
+          ? 'Open a message and tap Scan email text, use the app bar scan control, or switch to All.'
+          : 'Open a message and tap Scan this message, use the app bar scan control, or switch to All.';
     } else if (seg == InboxSegment.safe) {
       icon = Icons.shield_outlined;
       label = 'No safe scans yet';
       subtitle =
           '“Safe” lists only messages you scanned and the model marked as safe. '
-          'Use All to see everything, or scan messages with the shield icon.';
+          'Use All to see everything, or run Scan from a message or the app bar.';
     } else if (isGmail) {
       icon = Icons.mail_outline_rounded;
       label = 'No emails here';

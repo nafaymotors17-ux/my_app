@@ -161,10 +161,22 @@ class _SmsAiCheckCardState extends State<SmsAiCheckCard> {
                           ),
                         ),
                       ],
+                      if (!isPhishing && r.phishingProbability != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Estimated phishing risk: ${r.phishingPercentLabel} '
+                          '(phishing probability — not flagged).',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                       if (showConfidence) ...[
                         const SizedBox(height: 12),
                         Text(
-                          'Phishing confidence',
+                          'Estimated phishing risk',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,

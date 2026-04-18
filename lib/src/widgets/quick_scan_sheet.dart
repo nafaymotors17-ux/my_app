@@ -1,20 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:my_app/src/controllers/message_reader_controller.dart';
 import 'package:my_app/src/services/sms_ai_service.dart';
 
-/// Scan arbitrary pasted text — no message selection required.
+/// Scan arbitrary pasted text — same classifier as SMS and email flows.
 class QuickScanSheet extends StatefulWidget {
-  const QuickScanSheet({
-    super.key,
-    required this.initialMode,
-  });
+  const QuickScanSheet({super.key});
 
-  final MessageReaderMode initialMode;
-
-  static Future<void> show(
-    BuildContext context, {
-    MessageReaderMode initialMode = MessageReaderMode.sms,
-  }) {
+  static Future<void> show(BuildContext context) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -23,7 +14,7 @@ class QuickScanSheet extends StatefulWidget {
         padding: EdgeInsets.only(
           bottom: MediaQuery.viewInsetsOf(ctx).bottom,
         ),
-        child: QuickScanSheet(initialMode: initialMode),
+        child: const QuickScanSheet(),
       ),
     );
   }
@@ -33,17 +24,10 @@ class QuickScanSheet extends StatefulWidget {
 }
 
 class _QuickScanSheetState extends State<QuickScanSheet> {
-  late MessageReaderMode _mode;
   final _textController = TextEditingController();
   bool _busy = false;
   String? _lastResult;
   bool? _lastPhishing;
-
-  @override
-  void initState() {
-    super.initState();
-    _mode = widget.initialMode;
-  }
 
   @override
   void dispose() {
@@ -67,21 +51,14 @@ class _QuickScanSheetState extends State<QuickScanSheet> {
       _lastPhishing = null;
     });
     try {
-      final SmsAiResult result;
-      if (_mode == MessageReaderMode.sms) {
-        result = await SmsAiService.checkSms(raw);
-      } else {
-        result = await SmsAiService.checkEmailText(raw);
-      }
+      final result = await SmsAiService.checkSms(raw);
       if (!mounted) return;
-      final pct = result.phishingProbability != null
-          ? ' (${result.phishingPercentLabel} confidence)'
-          : '';
+      final suffix = result.phishingRiskPercentSuffix ?? '';
       setState(() {
         _lastPhishing = result.prediction == 1;
         _lastResult = result.prediction == 1
-            ? 'Phishing risk detected$pct'
-            : 'Looks safe$pct';
+            ? 'Flagged as phishing$suffix'
+            : 'Not flagged as phishing$suffix';
       });
     } catch (e) {
       if (!mounted) return;
@@ -112,31 +89,11 @@ class _QuickScanSheetState extends State<QuickScanSheet> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Paste SMS or email text. Nothing is saved unless you scan from a message list.',
+              'Paste SMS or email text. Same model as inbox scans. '
+              'Nothing is saved unless you scan from a message list.',
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
-            SegmentedButton<MessageReaderMode>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment<MessageReaderMode>(
-                  value: MessageReaderMode.sms,
-                  label: Text('SMS model'),
-                  icon: Icon(Icons.sms_outlined, size: 18),
-                ),
-                ButtonSegment<MessageReaderMode>(
-                  value: MessageReaderMode.email,
-                  label: Text('Email model'),
-                  icon: Icon(Icons.mail_outline, size: 18),
-                ),
-              ],
-              selected: {_mode},
-              onSelectionChanged: (set) {
-                if (set.isEmpty) return;
-                setState(() => _mode = set.first);
-              },
-            ),
-            const SizedBox(height: 12),
             TextField(
               controller: _textController,
               maxLines: 6,
